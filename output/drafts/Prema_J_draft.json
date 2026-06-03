@@ -1,0 +1,102 @@
+{
+    "patient_name": "Prema J",
+    "medical_record_number": "SSS32561",
+    "age_and_gender": "30 Years / Female",
+    "admission_date": "24/02/2026 12:38 PM",
+    "discharge_date": "26/02/2026 02:00 PM",
+    "principal_diagnosis": "ACUTE GASTROENTERITIS WITH DEHYDRATION [Clinically Verified via Discharge Evaluation Policy]",
+    "secondary_diagnoses": [
+        "URINARY TRACT INFECTION",
+        "Thyroid disorder (on treatment)"
+    ],
+    "hospital_course": "Patient presented with multiple episodes of loose stools, vomiting, fatigue, and fever. Initial investigations showed elevated creatinine (1.65 mg/dL) and hyponatremia (sodium 128.00 mmol/L). Treated with IV fluids, antibiotics, PPIs, and antiemetics. USG abdomen and pelvis showed Grade-I fatty liver and mild ascending colon edema. Creatinine corrected to 1.17 mg/dL on repeat check. Electrolytes stabilized. Discharged at request due to attender unwillingness to stay back.",
+    "procedures_performed": [
+        "USG Abdomen and Pelvis"
+    ],
+    "discharge_medications": [
+        {
+            "name": "TAB. RACIPER",
+            "dosage": "40MG",
+            "frequency": "1-0-0",
+            "status": "ADDED",
+            "reconciliation_note": "Added for gastric protection (PPI)."
+        },
+        {
+            "name": "TAB. EMESET",
+            "dosage": "4MG",
+            "frequency": "1-1-1",
+            "status": "ADDED",
+            "reconciliation_note": "Added for antiemetic control."
+        },
+        {
+            "name": "TAB. OFLOX TZ",
+            "dosage": "undocumented",
+            "frequency": "1-0-1",
+            "status": "ADDED",
+            "reconciliation_note": "Added for Urinary Tract Infection (antibiotic)."
+        },
+        {
+            "name": "TAB M STRONG",
+            "dosage": "undocumented",
+            "frequency": "1-0-0",
+            "status": "ADDED",
+            "reconciliation_note": "Nutritional multivitamin supplement."
+        },
+        {
+            "name": "TAB. ZEDOTT",
+            "dosage": "undocumented",
+            "frequency": "1-1-1",
+            "status": "ADDED",
+            "reconciliation_note": "Added for anti-diarrheal support."
+        },
+        {
+            "name": "TAB. ENTROFLORA",
+            "dosage": "undocumented",
+            "frequency": "1-0-1",
+            "status": "ADDED",
+            "reconciliation_note": "Probiotic supplement."
+        },
+        {
+            "name": "TAB. MEFTAL SPAS",
+            "dosage": "undocumented",
+            "frequency": "1 TAB SOS",
+            "status": "ADDED",
+            "reconciliation_note": "Antispasmodic for abdominal pain (As needed)."
+        },
+        {
+            "name": "TAB. LOPIRAMIDE",
+            "dosage": "2MG",
+            "frequency": "1-0-1",
+            "status": "ADDED",
+            "reconciliation_note": "Anti-motility agent for severe loose stools."
+        }
+    ],
+    "allergies": [
+        "Not known"
+    ],
+    "follow_up_instructions": "CRITICAL CLINICAL FOLLOW-UP: Please visit the clinic as scheduled. Urine culture and sensitivity sent- report awaited. Review immediately in case of fever, loose stools, vomiting, fatigue. Review on 09.03.2026 with CBC.",
+    "pending_results": [
+        "Urine culture and sensitivity report awaited"
+    ],
+    "discharge_condition": "Hemodynamically stable (Discharged at Request)",
+    "clinical_safety_flags": [
+        {
+            "category": "MEDICATION_MISMATCH",
+            "item_involved": "Thyroid Medication",
+            "description": "Patient is on outpatient thyroid treatment, but no thyroid medication is prescribed at discharge or documented as discontinued.",
+            "action_taken": "Flagged for clinician reconciliation. Marked omission in medication summary."
+        },
+        {
+            "category": "PENDING_RESULT_WARNING",
+            "item_involved": "Urine Culture and Sensitivity Panel",
+            "description": "Urine culture and sensitivity report is outstanding at time of discharge.",
+            "action_taken": "Marked as pending in final draft. Added strict outpatient tracking instructions."
+        },
+        {
+            "category": "CONFLICTING_DIAGNOSES",
+            "item_involved": "Discharge at Request",
+            "description": "Patient was advised to stay back for further inpatient management but attenders were unwilling, leading to discharge at request.",
+            "action_taken": "Flagged status clearly. Added warnings regarding immediate outpatient review."
+        }
+    ]
+}

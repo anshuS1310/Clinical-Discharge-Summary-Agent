@@ -1,0 +1,10 @@
+# Ignore Python compiler caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore local virtual environments (if any)
+venv/
+.venv/
+env/
