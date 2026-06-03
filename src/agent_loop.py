@@ -38,74 +38,46 @@ class ClinicalAgentLoop:
         )
         
         if is_gemini_native:
-            # Route to Gemini generateContent endpoint
+            # Route to Google Gemini's official OpenAI-compatible endpoint
+            url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
             # Map default model to a valid Gemini model if it was left as gpt-4o
-            gemini_model = model_name
+            model = model_name
             if "gpt-" in model_name or model_name == "gpt-4o":
-                gemini_model = "gemini-3.5-flash"
-            
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={api_key}"
-            headers = {"Content-Type": "application/json"}
-            payload = {
-                "contents": [
-                    {
-                        "parts": [
-                            {
-                                "text": (
-                                    "You are a clinical discharge summary assistant. Analyze patient notes "
-                                    "and produce a structured draft for review. Do not invent any facts. "
-                                    "Verify and flag all gaps, omissions, mismatches, or pending outcomes.\n\n"
-                                    f"PROMPT: {prompt}"
-                                )
-                            }
-                        ]
-                    }
-                ],
-                "generationConfig": {"temperature": 0.0}
-            }
-            try:
-                r = requests.post(url, json=payload, headers=headers, timeout=API_TIMEOUT)
-                if r.status_code == 200:
-                    res = r.json()
-                    content = res["candidates"][0]["content"]["parts"][0]["text"]
-                    return {"status": "SUCCESS", "content": content}
-                else:
-                    return {"status": "ERROR", "error": f"Gemini API returned status {r.status_code}: {r.text}"}
-            except Exception as e:
-                return {"status": "TIMEOUT_FALLBACK", "error": str(e)}
+                model = "gemini-3.5-flash"
         else:
-            # Route to standard OpenAI-compatible completions endpoint
             url = f"{base_url}/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": model_name,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a clinical discharge summary assistant. Analyze patient notes "
-                            "and produce a structured draft for review. Do not invent any facts. "
-                            "Verify and flag all gaps, omissions, mismatches, or pending outcomes."
-                        )
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.0
-            }
-            try:
-                r = requests.post(url, json=payload, headers=headers, timeout=API_TIMEOUT)
-                if r.status_code == 200:
-                    res = r.json()
-                    return {"status": "SUCCESS", "content": res["choices"][0]["message"]["content"]}
-                elif r.status_code == 401:
-                    return {"status": "UNAUTHORIZED", "error": "Invalid/Unauthorized LLM API key"}
-                else:
-                    return {"status": "ERROR", "error": f"LLM API returned status {r.status_code}: {r.text}"}
-            except Exception as e:
-                return {"status": "TIMEOUT_FALLBACK", "error": str(e)}
+            model = model_name
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a clinical discharge summary assistant. Analyze patient notes "
+                        "and produce a structured draft for review. Do not invent any facts. "
+                        "Verify and flag all gaps, omissions, mismatches, or pending outcomes."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.0
+        }
+        try:
+            r = requests.post(url, json=payload, headers=headers, timeout=API_TIMEOUT)
+            if r.status_code == 200:
+                res = r.json()
+                return {"status": "SUCCESS", "content": res["choices"][0]["message"]["content"]}
+            elif r.status_code == 401:
+                return {"status": "UNAUTHORIZED", "error": "Invalid/Unauthorized LLM API key"}
+            else:
+                return {"status": "ERROR", "error": f"LLM API returned status {r.status_code}: {r.text}"}
+        except Exception as e:
+            return {"status": "TIMEOUT_FALLBACK", "error": str(e)}
 
     def run(self, patient_id: str, raw_clinical_text: str) -> CompleteExecutionPayload:
         print(f"\n[Agent Loop] Initializing dynamic reasoning workspace for patient: {patient_id}...")

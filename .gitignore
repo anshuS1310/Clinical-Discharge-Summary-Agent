@@ -1,4 +1,5 @@
 # Ignore Python compiler caches
+.env
 __pycache__/
 *.pyc
 *.pyo
