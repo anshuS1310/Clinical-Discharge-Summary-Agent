@@ -4,6 +4,8 @@ This repository contains the production-grade implementation of the **Clinical D
 
 The system processes raw, visual clinical patient records (scanned notes, lab panels, ER charts) and generates structured, audit-ready clinical discharge summaries. It iteratively learns clinician formatting policies and safety updates by tracking edits via a feedback optimization loop.
 
+API Key : Free Google Gemini API key
+
 ---
 
 ## 1. Agent Loop Design
@@ -71,6 +73,7 @@ By Run 2, the agent learns the doctor's stylistic policies and clinical rules, s
 - **Prompt Window Constraints**: Storing clinician rules in in-context prompt memory works fast but is bounded by the model's context window. It doesn't scale to thousands of institutional rules.
 - **Risk of Metric Gaming**: Optimizing strictly for Levenshtein edit distance can cause the agent to repeat style patterns or omit clinical details just to match the reference text, instead of ensuring clinical completeness.
 - **Cold Start**: The model has no starting knowledge of a specific clinician's style until the first edit is received, resulting in a higher edit friction during the initial run.
+- **API key**: I used free google gemini api key to show working that's why the limit of tokens reached.
 
 ---
 
