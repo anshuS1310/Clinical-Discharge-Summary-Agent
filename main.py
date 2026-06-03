@@ -2,7 +2,12 @@
 import os
 import sys
 import json
+import argparse
 from typing import Dict, Any
+from dotenv import load_dotenv
+
+# Ensure dotenv override runs at very startup
+load_dotenv(override=True)
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -12,6 +17,17 @@ from src.doctor_sim import DoctorSimulator
 from src.learning_engine import FeedbackLearningEngine
 
 def main():
+    # Parse CLI Arguments for flexible configuration
+    parser_arg = argparse.ArgumentParser(description="Clinical Discharge Summary Agent Orchestrator")
+    parser_arg.add_argument(
+        "--api-key", "-k",
+        type=str,
+        default=None,
+        help="Optional LLM API Key to run in live mode. Overrides environmental keys."
+    )
+    args = parser_arg.parse_args()
+    cli_key = args.api_key
+
     print("======================================================================")
     print("      LAUNCHING CLINICAL DISCHARGE SUMMARY AGENT WORKSPACE            ")
     print("======================================================================")
@@ -36,9 +52,9 @@ def main():
         print(f" PROCESSING PATIENT: {patient_name.upper()} ")
         print(f"==============================================================")
         
-        # Iteration 1: Raw Agent Generation
+        # Iteration 1: Raw Agent Draft Generation (Baseline)
         print("\n--- [Optimization Run 1: Baseline Generation] ---")
-        agent_run_1 = ClinicalAgentLoop(feedback_memory=[])
+        agent_run_1 = ClinicalAgentLoop(feedback_memory=[], cli_api_key=cli_key)
         payload_1 = agent_run_1.run(patient_id=patient_name, raw_clinical_text=raw_text)
         draft_1 = payload_1.final_draft
         
@@ -56,7 +72,7 @@ def main():
         
         # Iteration 2: Learning Applied (Feedback Injected)
         print("\n--- [Optimization Run 2: Feedback-Injected Generation] ---")
-        agent_run_2 = ClinicalAgentLoop(feedback_memory=learning_engine.correction_memory)
+        agent_run_2 = ClinicalAgentLoop(feedback_memory=learning_engine.correction_memory, cli_api_key=cli_key)
         payload_2 = agent_run_2.run(patient_id=patient_name, raw_clinical_text=raw_text)
         draft_2 = payload_2.final_draft
         
@@ -70,7 +86,7 @@ def main():
         
         # Iteration 3: Full Alignment Run
         print("\n--- [Optimization Run 3: Fully Aligned State] ---")
-        agent_run_3 = ClinicalAgentLoop(feedback_memory=learning_engine.correction_memory)
+        agent_run_3 = ClinicalAgentLoop(feedback_memory=learning_engine.correction_memory, cli_api_key=cli_key)
         payload_3 = agent_run_3.run(patient_id=patient_name, raw_clinical_text=raw_text)
         draft_3 = payload_3.final_draft
         

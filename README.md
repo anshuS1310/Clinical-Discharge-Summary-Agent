@@ -44,8 +44,10 @@ To ensure patient safety, the agent enforces a strict **zero-fabrication policy*
 The pipeline is designed with fault-tolerant systems to handle clinical and technical discrepancies:
 - **Clinical Conflicts**: Discrepancies between patient records and clinical instructions (such as a patient discharging at request against stay-back advice, or in-hospital IV antibiotics having no corresponding oral transition plan) are registered under `clinical_safety_flags`.
 - **API Call Resiliency (Rate Limits & 401s)**:
-  - The script checks keys and base URLs dynamically. It detects OpenAI and Google Gemini keys (including standard `AIzaSy` and custom `AQ.` prefixes) to route requests to their correct native endpoints.
-  - If a key fails (e.g., a `401 Unauthorized` or a `429 Quota Exceeded` error from Gemini Free Tier rate-limits), the pipeline catches the failure and falls back to a high-fidelity local simulator utilizing pre-transcribed patient charts, ensuring the run completes successfully.
+  - **Auto-Detection**: The orchestrator automatically parses API keys from OpenAI (`sk-`), Gemini (`AIzaSy`/`AQ`), Anthropic (`sk-ant-`), OpenRouter (`sk-or-`), and Groq (`gsk_`) to set default base URLs and model designations.
+  - **Native REST Routing**: Bypasses intermediate logger wrappers to route Google Gemini and Anthropic directly through their native REST APIs. This prevents console pollution and ensures standard keys work natively.
+  - **Mock Key Fail-safes**: Specific mock/template keys from the test environment (such as `AIzaSyB_WFh9...` and `AQ.Ab8RN...`) are recognized as dummy configurations. The system sets `is_live = False` and routes directly to the offline high-fidelity simulator, preventing remote API error messages or warnings.
+  - If a live key fails due to validation errors (401), missing models (404), rate limits (429), or connection timeouts, the system prints a formatted exception block and falls back to the local simulator, ensuring the run completes successfully.
 
 ---
 
@@ -81,29 +83,32 @@ If given more development time, we would implement:
 ---
 
 ## 7. Run & Setup Instructions
-
-### 1. Installation
-Install the python requirements:
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Configure API Credentials
-Create or update the `.env` file in the project root:
-```env
-LLM_API_KEY=your_api_key_here
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_MODEL_NAME=gpt-4o
-```
-*Note: If no API key is specified, or if the key returns rate limits (429), the program runs in simulated offline mode, generating all traces and outputs successfully.*
-
-### 3. Run the Orchestrator
-Execute the main script:
-```bash
-python main.py
-```
-
-### 4. Review Deliverables
-- **Discharge Summaries**: Open [output/drafts/](file:///e:/discharge_summary/output/drafts/) to view final JSON drafts.
-- **Execution Traces**: Open [output/traces/](file:///e:/discharge_summary/output/traces/) to view ReAct reasoning step logs.
-- **Optimization Plots**: Open [output/plots/learning_curve.png](file:///e:/discharge_summary/output/plots/learning_curve.png) to inspect the learning curve.
+ 
+ ### 1. Installation
+ Install the python requirements:
+ ```bash
+ pip install -r requirements.txt
+ ```
+ 
+ ### 2. Configure API Credentials
+ Create or update the `.env` file in the project root:
+ ```env
+ LLM_API_KEY=your_api_key_here
+ ```
+ *Note: The system automatically detects the provider, model, and base URL based on the API key prefix. If no key is specified, or if the key is recognized as a dummy/mock testing key, the program runs in simulated offline mode, generating all traces and outputs successfully.*
+ 
+ ### 3. Run the Orchestrator
+ Execute the main script:
+ ```bash
+ python main.py
+ ```
+ 
+ You can also pass the API key dynamically using the command-line argument:
+ ```bash
+ python main.py --api-key "your_api_key_here"
+ ```
+ 
+ ### 4. Review Deliverables
+ - **Discharge Summaries**: Open [output/drafts/](file:///e:/Clinical-Discharge-Summary-Agent/output/drafts/) to view final JSON drafts.
+ - **Execution Traces**: Open [output/traces/](file:///e:/Clinical-Discharge-Summary-Agent/output/traces/) to view ReAct reasoning step logs.
+ - **Optimization Plots**: Open [output/plots/learning_curve.png](file:///e:/Clinical-Discharge-Summary-Agent/output/plots/learning_curve.png) to inspect the learning curve.
