@@ -43,7 +43,7 @@ class ClinicalAgentLoop:
             # Map default model to a valid Gemini model if it was left as gpt-4o
             model = model_name
             if "gpt-" in model_name or model_name == "gpt-4o":
-                model = "gemini-3.5-flash"
+                model = "gemini-1.5-flash"
         else:
             url = f"{base_url}/chat/completions"
             model = model_name
