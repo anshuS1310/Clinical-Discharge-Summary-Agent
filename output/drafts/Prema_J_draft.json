@@ -117,6 +117,12 @@
             "item_involved": "allergies",
             "description": "OCR did not provide a reliable allergy value; rejected candidate: missing.",
             "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
+        },
+        {
+            "category": "MISSING_DATA",
+            "item_involved": "medical_record_number, age_and_gender, admission_date, discharge_date",
+            "description": "Required fields were not reliably sourced from OCR/API extraction.",
+            "action_taken": "Marked missing and flagged for clinician review."
         }
     ]
 }

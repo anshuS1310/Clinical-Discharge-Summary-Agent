@@ -1,4 +1,4 @@
-# main.py — CLI orchestrator for the Clinical Discharge Summary Agent
+# main.py  CLI orchestrator for the Clinical Discharge Summary Agent
 # Use this to run the full pipeline without the web server.
 # For the web interface, run: python -m uvicorn server:app --port 8000 --reload
 
@@ -20,9 +20,9 @@ from src.learning_engine import FeedbackLearningEngine
 
 
 def main():
-    # ── CLI Arguments ─────────────────────────────────────────────────
+    # CLI arguments
     arg_parser = argparse.ArgumentParser(
-        description="Clinical Discharge Summary Agent — CLI Orchestrator"
+        description="Clinical Discharge Summary Agent  CLI Orchestrator"
     )
     arg_parser.add_argument(
         "--api-key", "-k",
@@ -34,18 +34,18 @@ def main():
     cli_key = args.api_key
 
     print("=" * 70)
-    print("   ClinicalAI — Discharge Summary Agent")
+    print("   ClinicalAI  Discharge Summary Agent")
     print("=" * 70)
 
-    # ── Create output directories ──────────────────────────────────────
+    # Create output directories
     os.makedirs("output/drafts", exist_ok=True)
     os.makedirs("output/traces", exist_ok=True)
     os.makedirs("output/plots",  exist_ok=True)
 
-    # ── PDF path — update this to point to your clinical PDF ──────────
+    # PDF to process — update this path to point to your clinical PDF
     pdf_path = "data/raw_patients/patient 2.pdf"
 
-    # ── Step 1: Parse patient records from the PDF ────────────────────
+    # Step 1: Parse patient records from the PDF
     print(f"\n[1/4] Parsing patient records from: {pdf_path}")
     parser = ClinicalTextParser()
     patient_records = parser.parse_patient_pdf(pdf_path)
@@ -59,11 +59,11 @@ def main():
 
     print(f"      Extracted {len(patient_records)} patient record(s): {list(patient_records.keys())}")
 
-    # ── Step 2: Initialise shared components ──────────────────────────
+    # Step 2: Initialise shared components
     doctor          = DoctorSimulator()
     learning_engine = FeedbackLearningEngine()
 
-    # ── Step 3: Run the 3-iteration agent-doctor loop per patient ─────
+    # Step 3: Run the 3-iteration agent-doctor loop per patient
     print("\n[2/4] Running 3-iteration agent pipeline for each patient...\n")
 
     for patient_name, raw_text in patient_records.items():
@@ -72,7 +72,7 @@ def main():
         print(f"{'=' * 70}")
 
         # --- Iteration 1: Baseline (no learned rules) ---
-        print("\n  [Iteration 1/3] Baseline generation — no feedback yet")
+        print("\n  [Iteration 1/3] Baseline generation  no feedback yet")
         agent_1  = ClinicalAgentLoop(feedback_memory=[], cli_api_key=cli_key)
         payload_1 = agent_1.run(patient_id=patient_name, raw_clinical_text=raw_text)
         draft_1   = payload_1.final_draft
@@ -85,7 +85,7 @@ def main():
         print(f"  Correction rules in memory: {len(learning_engine.correction_memory)}")
 
         # --- Iteration 2: Feedback-injected ---
-        print("\n  [Iteration 2/3] Feedback-injected — applying learned rules")
+        print("\n  [Iteration 2/3] Feedback-injected  applying learned rules")
         agent_2   = ClinicalAgentLoop(feedback_memory=learning_engine.correction_memory, cli_api_key=cli_key)
         payload_2 = agent_2.run(patient_id=patient_name, raw_clinical_text=raw_text)
         draft_2   = payload_2.final_draft
@@ -113,14 +113,14 @@ def main():
         draft_path = f"output/drafts/{slug}_draft.json"
         with open(draft_path, "w") as f:
             json.dump(payload_3.final_draft.model_dump(), f, indent=4)
-        print(f"\n  [Saved] Discharge draft  → {draft_path}")
+        print(f"\n  [Saved] Discharge draft   {draft_path}")
 
         trace_path = f"output/traces/{slug}_trace.json"
         with open(trace_path, "w") as f:
             json.dump([t.model_dump() for t in payload_3.execution_trace], f, indent=4)
-        print(f"  [Saved] Execution trace  → {trace_path}")
+        print(f"  [Saved] Execution trace   {trace_path}")
 
-    # ── Step 4: Generate learning curve plot ──────────────────────────
+    # Step 4: Generate learning curve plot
     print("\n[3/4] Generating learning curve chart...")
     plot_path = "output/plots/learning_curve.png"
     learning_engine.generate_and_save_learning_curve(plot_path)

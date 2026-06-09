@@ -9,10 +9,50 @@
     },
     {
         "step_number": 2,
-        "reasoning": "Used local Transformers text2text-generation pipeline with google/flan-t5-small to polish extracted narrative fields.",
+        "reasoning": "Local ReAct policy found medication/discharge-advice evidence and selected medication reconciliation. Local model JSON decision was unavailable/invalid (empty local model response); deterministic local policy used.",
+        "action_chosen": "CALL_TOOL: MedicationReconciliation",
+        "inputs": "Extracted medication and discharge advice text",
+        "result": "Admission medications: Outpatient treatment for Thyroid disorder is documented in past history, but specific drug/dose is missing.\nDischarge medications: Raciper 40mg, Emeset 4mg, Oflox TZ, M Strong, Zedott, Entroflora, Meftal Spas, Lopiramide 2mg.\nDiscrepancy: Outpatient thyroid medication was omitted at discharge with no documented reason.",
+        "next_decision": "check pending results"
+    },
+    {
+        "step_number": 3,
+        "reasoning": "Local ReAct policy found pending/culture evidence and selected pending-result review. Local model JSON decision was unavailable/invalid (empty local model response); deterministic local policy used.",
+        "action_chosen": "CALL_TOOL: PendingResultsCheck",
+        "inputs": "Pending lab and culture evidence",
+        "result": "Urine culture and sensitivity test was sent due to pus cells/bacteria in routine analysis; report is still awaited.",
+        "next_decision": "check diagnostic trends"
+    },
+    {
+        "step_number": 4,
+        "reasoning": "Local ReAct policy found diagnostic/lab evidence and selected diagnostic trend review. Local model JSON decision was unavailable/invalid (empty local model response); deterministic local policy used.",
+        "action_chosen": "CALL_TOOL: DiagnosticCheck",
+        "inputs": "Diagnostic and laboratory evidence",
+        "result": "Serum creatinine was elevated at 1.65 mg/dL on admission, corrected/stabilized to 1.17 mg/dL on repeat check. Sodium was low at 128.00 mmol/L, normalized.",
+        "next_decision": "flag unresolved safety issues"
+    },
+    {
+        "step_number": 5,
+        "reasoning": "Local ReAct policy found required discharge-summary fields still missing and selected safety flagging. Local model JSON decision was unavailable/invalid (empty local model response); deterministic local policy used.",
+        "action_chosen": "CALL_TOOL: FlagContradiction",
+        "inputs": "{\"category\": \"MISSING_DATA\", \"item_involved\": \"medical_record_number, age_and_gender, admission_date, discharge_date\", \"description\": \"Required fields were not reliably sourced from OCR/API extraction.\", \"action_taken\": \"Marked missing and flagged for clinician review.\"}",
+        "result": "Successfully registered MISSING_DATA safety flag for medical_record_number, age_and_gender, admission_date, discharge_date.",
+        "next_decision": "finalize draft"
+    },
+    {
+        "step_number": 6,
+        "reasoning": "Local ReAct loop reached the useful tool coverage limit.",
+        "action_chosen": "FINAL_DRAFT",
+        "inputs": "Completed local tool checks",
+        "result": "Local ReAct loop finalized the extracted draft after tool review.",
+        "next_decision": "validate_schema_and_export"
+    },
+    {
+        "step_number": 7,
+        "reasoning": "Used local Transformers text2text-generation pipeline with google/flan-t5-small; local ReAct reasoning/tool selection already reviewed the extracted draft.",
         "action_chosen": "LOCAL_TRANSFORMERS_PIPELINE",
-        "inputs": "hospital_course and follow_up_instructions",
-        "result": "Updated narrative fields using a CPU-friendly local model while preserving structured extracted facts.",
+        "inputs": "hospital_course, follow_up_instructions, and local ReAct-reviewed draft",
+        "result": "Completed local generation path while preserving structured extracted facts and local tool decisions.",
         "next_decision": "validate_schema_and_export"
     }
 ]

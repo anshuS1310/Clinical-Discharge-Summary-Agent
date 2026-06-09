@@ -1,7 +1,7 @@
 # src/doctor_sim.py
 # Simulates a clinician reviewing and editing the AI-generated discharge draft.
 # The "hidden policy" here mimics the kind of consistent formatting preference
-# a real doctor might apply — a verification suffix on diagnoses and a
+# a real doctor might apply  a verification suffix on diagnoses and a
 # compliance prefix on follow-up instructions. These edits are what the learning
 # engine measures and learns from across iterations.
 
@@ -32,7 +32,7 @@ class DoctorSimulator:
         # Deep-copy so the original draft is preserved for comparison
         edited = draft.model_copy(deep=True)
 
-        # Policy 1 — Principal diagnosis must carry the verification stamp
+        # Policy 1  Principal diagnosis must carry the verification stamp
         if (
             edited.principal_diagnosis
             and edited.principal_diagnosis.lower() != "missing"
@@ -40,7 +40,7 @@ class DoctorSimulator:
         ):
             edited.principal_diagnosis += self.verification_suffix
 
-        # Policy 2 — Follow-up instructions must open with the compliance warning
+        # Policy 2  Follow-up instructions must open with the compliance warning
         compliance_prefix = "CRITICAL CLINICAL FOLLOW-UP: Please visit the clinic as scheduled. "
         if (
             edited.follow_up_instructions

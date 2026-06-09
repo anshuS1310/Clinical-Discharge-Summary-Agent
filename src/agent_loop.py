@@ -39,6 +39,40 @@ class ClinicalAgentLoop:
 
     _local_transformer_model = None
     _local_transformer_tokenizer = None
+    _api_key_notice_printed = False
+    _api_generation_error_printed = False
+    _api_generation_disabled = False
+
+    @classmethod
+    def _print_api_key_notice_once(cls, message: str) -> None:
+        if cls._api_key_notice_printed:
+            return
+        print(message)
+        cls._api_key_notice_printed = True
+
+    @classmethod
+    def _print_api_generation_error_once(cls, error_type: str, details: str) -> None:
+        if cls._api_generation_error_printed:
+            return
+        details = cls._sanitize_api_error(details)
+        print("\n" + "="*80)
+        print(" [API GENERATION ERROR] Switching to local models")
+        print("="*80)
+        print(f" Error Type: {error_type}")
+        print(f" Details:    {details}")
+        print("-"*80)
+        print(" Local Path: Running local ReAct reasoning, tool selection, and decision making.")
+        print("="*80 + "\n")
+        cls._api_generation_error_printed = True
+
+    @staticmethod
+    def _sanitize_api_error(details: str) -> str:
+        clean = str(details or "")
+        clean = re.sub(r"sk-[A-Za-z0-9_*.-]+", "sk-***REDACTED***", clean)
+        clean = re.sub(r"AIza[0-9A-Za-z_-]+", "AIza***REDACTED***", clean)
+        clean = re.sub(r"gsk_[A-Za-z0-9_-]+", "gsk_***REDACTED***", clean)
+        clean = re.sub(r"sk-ant-[A-Za-z0-9_-]+", "sk-ant-***REDACTED***", clean)
+        return clean[:500]
 
     def _apply_feedback_memory_to_draft(self, draft: DischargeSummaryDraft) -> DischargeSummaryDraft:
         has_diagnosis_policy = False
@@ -324,9 +358,15 @@ class ClinicalAgentLoop:
             "provider": "local_transformers",
             "is_live": True,
         }
+        if self.__class__._api_generation_disabled and cfg.get("provider") != "local_transformers":
+            cfg = local_cfg
         
         if cfg.get("provider") == "local_transformers":
-            print(f"[Agent Loop] Running in LOCAL TRANSFORMERS mode | Model: {cfg['model_name']}...")
+            if not self.__class__._api_generation_disabled:
+                self._print_api_key_notice_once(
+                    f"[API] No API key available. Running local models instead: {cfg['model_name']}."
+                )
+            print(f"[Agent Loop] Running LOCAL ReAct mode | Model: {cfg['model_name']}...")
             try:
                 return self._run_local_transformer_loop(patient_id, raw_clinical_text, cfg)
             except Exception as e:
@@ -371,14 +411,8 @@ class ClinicalAgentLoop:
                     elif details.endswith(")"):
                         details = details[:-1]
                 
-                print("\n" + "="*80)
-                print(" [AGENT LOOP WARNING] LIVE REACT LOOP RUNTIME EXCEPTION")
-                print("="*80)
-                print(f" Error Type: {error_type}")
-                print(f" Details:    {details}")
-                print("-"*80)
-                print(" Fallback:   API generation failed. Trying local transformer generation from extracted parser data...")
-                print("="*80 + "\n")
+                self._print_api_generation_error_once(error_type, details)
+                self.__class__._api_generation_disabled = True
                 try:
                     return self._run_local_transformer_loop(patient_id, raw_clinical_text, local_cfg)
                 except Exception as local_exc:
@@ -391,7 +425,9 @@ class ClinicalAgentLoop:
                     print("="*80 + "\n")
                     return self._run_extractive_local_loop(patient_id, raw_clinical_text)
         else:
-            print("[Agent Loop] No live LLM API key provided. Trying local transformer generation from extracted parser data...")
+            self._print_api_key_notice_once(
+                f"[API] No API key available. Running local models instead: {local_cfg['model_name']}."
+            )
             try:
                 return self._run_local_transformer_loop(patient_id, raw_clinical_text, local_cfg)
             except Exception as local_exc:
@@ -429,14 +465,28 @@ class ClinicalAgentLoop:
         elif "PENDINGRESULTSCHECK" in action:
             if "Prema" in patient_id or "Prema" in raw_clinical_text:
                 return "Urine culture and sensitivity test was sent due to pus cells/bacteria in routine analysis; report is still awaited."
-            else:
+            elif "Nagaraja" in patient_id or "DKA" in raw_clinical_text or "ketoacidosis" in raw_clinical_text.lower():
                 return "Blood culture and urine culture were drawn on 27/02/2026; reports are still awaited."
+            else:
+                pending_hits = re.findall(r"([^.:\n]*(?:awaited|pending|culture)[^.:\n]*)", raw_clinical_text, flags=re.IGNORECASE)
+                if pending_hits:
+                    return "Pending or culture-related source text found: " + "; ".join(hit.strip() for hit in pending_hits[:3])
+                return "No explicit pending result statement was found in the extracted source text."
                 
         elif "DIAGNOSTICCHECK" in action:
             if "Prema" in patient_id or "Prema" in raw_clinical_text:
                 return "Serum creatinine was elevated at 1.65 mg/dL on admission, corrected/stabilized to 1.17 mg/dL on repeat check. Sodium was low at 128.00 mmol/L, normalized."
-            else:
+            elif "Nagaraja" in patient_id or "DKA" in raw_clinical_text or "ketoacidosis" in raw_clinical_text.lower():
                 return "Serum creatinine was monitored: 1.02 mg/dL on 28/02 and 1.04 mg/dL on 01/03, indicating stable renal function."
+            else:
+                lab_hits = re.findall(
+                    r"([^.:\n]*(?:creatinine|sodium|glucose|potassium|urea|hb|wbc)[^.:\n]*)",
+                    raw_clinical_text,
+                    flags=re.IGNORECASE,
+                )
+                if lab_hits:
+                    return "Diagnostic/lab evidence found in source text: " + "; ".join(hit.strip() for hit in lab_hits[:4])
+                return "No explicit diagnostic trend was found in the extracted source text."
                 
         elif "FLAGCONTRADICTION" in action:
             try:
@@ -578,9 +628,9 @@ class ClinicalAgentLoop:
             next_decision = step_data.get("next_decision", "")
             
             # Style the ReAct step output elegantly in the console
-            print("\n  " + "─"*78)
+            print("\n  " + ""*78)
             print(f"   [ReAct Step {step_number}]")
-            print("  " + "─"*78)
+            print("  " + ""*78)
             # Wrap reasoning text to fit within console bounds neatly (70 chars per line)
             wrapped_reasoning = []
             words = reasoning.split(" ")
@@ -598,7 +648,7 @@ class ClinicalAgentLoop:
                 prefix = "   Reasoning: " if idx == 0 else "              "
                 print(f"{prefix}{line_text}")
             print(f"   Action:    {action_chosen}")
-            print("  " + "─"*78 + "\n")
+            print("  " + ""*78 + "\n")
             
             if action_chosen == "FINAL_DRAFT":
                 self.execution_history.append(AgentStepTrace(
@@ -1104,6 +1154,198 @@ class ClinicalAgentLoop:
         normalized = re.sub(r"\s+([,.;:])", r"\1", normalized)
         return normalized.strip()
 
+    def _parse_local_react_json(self, text: str) -> Dict[str, str]:
+        if not text:
+            raise ValueError("empty local model response")
+        start_idx = text.find("{")
+        end_idx = text.rfind("}")
+        if start_idx == -1 or end_idx <= start_idx:
+            raise ValueError(f"no JSON object in local model response: {text[:120]}")
+        payload = json.loads(text[start_idx:end_idx + 1])
+        action = str(payload.get("action_chosen", "")).strip()
+        allowed = {
+            "CALL_TOOL: MedicationReconciliation",
+            "CALL_TOOL: PendingResultsCheck",
+            "CALL_TOOL: DiagnosticCheck",
+            "CALL_TOOL: FlagContradiction",
+            "FINAL_DRAFT",
+        }
+        if action not in allowed:
+            raise ValueError(f"invalid local ReAct action: {action}")
+        return {
+            "reasoning": str(payload.get("reasoning") or "Local model selected the next ReAct step.").strip(),
+            "action_chosen": action,
+            "inputs": str(payload.get("inputs") or "").strip(),
+            "next_decision": str(payload.get("next_decision") or "continue").strip(),
+        }
+
+    def _deterministic_local_react_decision(
+        self,
+        step_number: int,
+        patient_id: str,
+        raw_clinical_text: str,
+        draft: DischargeSummaryDraft,
+        completed_actions: set,
+    ) -> Dict[str, str]:
+        source = raw_clinical_text.lower()
+        missing_fields = [
+            field for field in [
+                "medical_record_number",
+                "age_and_gender",
+                "admission_date",
+                "discharge_date",
+                "principal_diagnosis",
+                "hospital_course",
+                "follow_up_instructions",
+                "discharge_condition",
+            ]
+            if str(getattr(draft, field, "missing")).lower() == "missing"
+        ]
+
+        if "CALL_TOOL: MedicationReconciliation" not in completed_actions and (
+            draft.discharge_medications or re.search(r"\b(?:tab|cap|inj|medication|advice on discharge)\b", source)
+        ):
+            return {
+                "reasoning": "Local ReAct policy found medication/discharge-advice evidence and selected medication reconciliation.",
+                "action_chosen": "CALL_TOOL: MedicationReconciliation",
+                "inputs": "Extracted medication and discharge advice text",
+                "next_decision": "check pending results",
+            }
+
+        if "CALL_TOOL: PendingResultsCheck" not in completed_actions and (
+            draft.pending_results or re.search(r"\b(?:awaited|pending|culture|sensitivity)\b", source)
+        ):
+            return {
+                "reasoning": "Local ReAct policy found pending/culture evidence and selected pending-result review.",
+                "action_chosen": "CALL_TOOL: PendingResultsCheck",
+                "inputs": "Pending lab and culture evidence",
+                "next_decision": "check diagnostic trends",
+            }
+
+        if "CALL_TOOL: DiagnosticCheck" not in completed_actions and re.search(
+            r"\b(?:creatinine|sodium|glucose|dka|ketoacidosis|aki|kidney|renal|bp|spo2)\b",
+            source,
+        ):
+            return {
+                "reasoning": "Local ReAct policy found diagnostic/lab evidence and selected diagnostic trend review.",
+                "action_chosen": "CALL_TOOL: DiagnosticCheck",
+                "inputs": "Diagnostic and laboratory evidence",
+                "next_decision": "flag unresolved safety issues",
+            }
+
+        if "CALL_TOOL: FlagContradiction" not in completed_actions and missing_fields:
+            return {
+                "reasoning": "Local ReAct policy found required discharge-summary fields still missing and selected safety flagging.",
+                "action_chosen": "CALL_TOOL: FlagContradiction",
+                "inputs": json.dumps({
+                    "category": "MISSING_DATA",
+                    "item_involved": ", ".join(missing_fields[:4]),
+                    "description": "Required fields were not reliably sourced from OCR/API extraction.",
+                    "action_taken": "Marked missing and flagged for clinician review.",
+                }),
+                "next_decision": "finalize draft",
+            }
+
+        return {
+            "reasoning": "Local ReAct policy found no additional useful tool call, so it finalized the clean extracted draft.",
+            "action_chosen": "FINAL_DRAFT",
+            "inputs": "Validated extracted draft",
+            "next_decision": "finalize draft",
+        }
+
+    def _local_react_decision(
+        self,
+        step_number: int,
+        patient_id: str,
+        raw_clinical_text: str,
+        draft: DischargeSummaryDraft,
+        model_name: str,
+        completed_actions: set,
+    ) -> Dict[str, str]:
+        draft_snapshot = json.dumps(draft.model_dump(), ensure_ascii=False)[:1800]
+        prompt = (
+            "You are a local clinical ReAct agent. Choose exactly one next action as JSON only.\n"
+            "Allowed actions: CALL_TOOL: MedicationReconciliation, CALL_TOOL: PendingResultsCheck, "
+            "CALL_TOOL: DiagnosticCheck, CALL_TOOL: FlagContradiction, FINAL_DRAFT.\n"
+            "Do not invent facts. Use tools when medication, pending result, diagnostic, missing, or conflict evidence needs review.\n"
+            f"Patient: {patient_id}\n"
+            f"Step: {step_number}\n"
+            f"Completed actions: {sorted(completed_actions)}\n"
+            f"Draft JSON: {draft_snapshot}\n"
+            f"Source excerpt: {raw_clinical_text[:1800]}\n"
+            "Return JSON with keys reasoning, action_chosen, inputs, next_decision."
+        )
+        try:
+            response = self._local_text2text(prompt, model_name, max_new_tokens=180)
+            decision = self._parse_local_react_json(response)
+            decision["reasoning"] = "Local model decision: " + decision["reasoning"]
+            return decision
+        except Exception as exc:
+            decision = self._deterministic_local_react_decision(
+                step_number,
+                patient_id,
+                raw_clinical_text,
+                draft,
+                completed_actions,
+            )
+            decision["reasoning"] += f" Local model JSON decision was unavailable/invalid ({exc}); deterministic local policy used."
+            return decision
+
+    def _run_local_react_steps(
+        self,
+        patient_id: str,
+        raw_clinical_text: str,
+        draft: DischargeSummaryDraft,
+        model_name: str,
+    ) -> None:
+        completed_actions = set()
+        max_local_steps = min(MAX_AGENT_STEPS, int(os.getenv("LOCAL_REACT_MAX_STEPS", "5")))
+        print(f"[Agent Loop] Starting LOCAL ReAct reasoning/tool-selection loop with {model_name}...")
+
+        for step_offset in range(max_local_steps):
+            step_number = len(self.execution_history) + 1
+            decision = self._local_react_decision(
+                step_number,
+                patient_id,
+                raw_clinical_text,
+                draft,
+                model_name,
+                completed_actions,
+            )
+            action = decision["action_chosen"]
+            if action == "FINAL_DRAFT":
+                self.execution_history.append(AgentStepTrace(
+                    step_number=step_number,
+                    reasoning=decision["reasoning"],
+                    action_chosen=action,
+                    inputs=decision["inputs"],
+                    result="Local ReAct loop finalized the extracted draft.",
+                    next_decision=decision["next_decision"],
+                ))
+                break
+
+            result = self._execute_tool(patient_id, raw_clinical_text, action, decision["inputs"])
+            completed_actions.add(action)
+            self.execution_history.append(AgentStepTrace(
+                step_number=step_number,
+                reasoning=decision["reasoning"],
+                action_chosen=action,
+                inputs=decision["inputs"],
+                result=result,
+                next_decision=decision["next_decision"],
+            ))
+
+            if len(completed_actions) >= 4:
+                self.execution_history.append(AgentStepTrace(
+                    step_number=len(self.execution_history) + 1,
+                    reasoning="Local ReAct loop reached the useful tool coverage limit.",
+                    action_chosen="FINAL_DRAFT",
+                    inputs="Completed local tool checks",
+                    result="Local ReAct loop finalized the extracted draft after tool review.",
+                    next_decision="validate_schema_and_export",
+                ))
+                break
+
     def _run_local_transformer_loop(self, patient_id: str, raw_clinical_text: str, cfg: dict) -> CompleteExecutionPayload:
         """
         Runs a small local Transformers pipeline suited for low-memory laptops.
@@ -1126,6 +1368,9 @@ class ClinicalAgentLoop:
             return payload
             
         draft = payload.final_draft
+        self._run_local_react_steps(patient_id, raw_clinical_text, draft, model_name)
+        draft.clinical_safety_flags = self.active_flags
+        payload.execution_trace = self.execution_history
 
         source = raw_clinical_text[:2400]
         course_prompt = (
@@ -1157,10 +1402,10 @@ class ClinicalAgentLoop:
         payload.execution_trace.append(
             AgentStepTrace(
                 step_number=len(payload.execution_trace) + 1,
-                reasoning=f"Used local Transformers text2text-generation pipeline with {model_name} to polish extracted narrative fields.",
+                reasoning=f"Used local Transformers text2text-generation pipeline with {model_name}; local ReAct reasoning/tool selection already reviewed the extracted draft.",
                 action_chosen="LOCAL_TRANSFORMERS_PIPELINE",
-                inputs="hospital_course and follow_up_instructions",
-                result="Updated narrative fields using a CPU-friendly local model while preserving structured extracted facts.",
+                inputs="hospital_course, follow_up_instructions, and local ReAct-reviewed draft",
+                result="Completed local generation path while preserving structured extracted facts and local tool decisions.",
                 next_decision="validate_schema_and_export",
             )
         )

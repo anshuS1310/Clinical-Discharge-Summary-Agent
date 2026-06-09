@@ -40,6 +40,35 @@ class ClinicalTextParser:
     _local_ocr_model = None
     _local_ocr_model_name = None
     _easyocr_reader = None
+    _api_ocr_key_notice_printed = False
+    _api_ocr_error_notice_printed = False
+
+    @classmethod
+    def _print_api_ocr_key_notice_once(cls, message: str) -> None:
+        if cls._api_ocr_key_notice_printed:
+            return
+        print(message)
+        cls._api_ocr_key_notice_printed = True
+
+    @classmethod
+    def _print_api_ocr_error_once(cls, details: str) -> None:
+        if cls._api_ocr_error_notice_printed:
+            return
+        details = cls._sanitize_api_error(details)
+        print(
+            "[Ingestion API Error] API vision extraction failed. "
+            f"Cause: {details}. Switching to local OCR models."
+        )
+        cls._api_ocr_error_notice_printed = True
+
+    @staticmethod
+    def _sanitize_api_error(details: str) -> str:
+        clean = str(details or "")
+        clean = re.sub(r"sk-[A-Za-z0-9_*.-]+", "sk-***REDACTED***", clean)
+        clean = re.sub(r"AIza[0-9A-Za-z_-]+", "AIza***REDACTED***", clean)
+        clean = re.sub(r"gsk_[A-Za-z0-9_-]+", "gsk_***REDACTED***", clean)
+        clean = re.sub(r"sk-ant-[A-Za-z0-9_-]+", "sk-ant-***REDACTED***", clean)
+        return clean[:500]
     
     def __init__(self):
         # High-fidelity fallback patient clinical notes transcribed from data/raw_patients/patient 2.pdf
@@ -312,9 +341,11 @@ class ClinicalTextParser:
             if page_texts and any(text.strip() for text in page_texts):
                 print("[Ingestion] API vision extraction completed.")
             else:
-                print("[Ingestion] API vision extraction did not return usable medical-report text. Falling back to local OCR model.")
+                print("[Ingestion] API vision extraction did not return usable medical-report text. Switching to local OCR model.")
         else:
-            print("[Ingestion] No live API key configured for image extraction. Falling back to local OCR model.")
+            self._print_api_ocr_key_notice_once(
+                "[Ingestion API] No API key available for image extraction. Running local OCR models."
+            )
 
         if not page_texts or not any(text.strip() for text in page_texts):
             page_texts = self._ocr_pdf_pages_with_easyocr_subprocesses(pdf_path, max_pages)
@@ -806,7 +837,9 @@ class ClinicalTextParser:
     def _ocr_rendered_images_with_vision_model(self, pages, page_offset: int = 0) -> List[str]:
         cfg = get_llm_config()
         if not cfg.get("api_key") or cfg.get("provider") == "local_transformers":
-            print("[Ingestion] Vision OCR requires a live Gemini/OpenAI-compatible API key in .env.")
+            self._print_api_ocr_key_notice_once(
+                "[Ingestion API] No API key available for image extraction. Running local OCR models."
+            )
             return []
 
         page_texts: List[str] = []
@@ -817,8 +850,8 @@ class ClinicalTextParser:
                 page_texts.append(text.strip())
                 print(f"[Ingestion] Vision OCR extracted {len(text.strip())} character(s) from page {source_page}.")
             except Exception as exc:
-                print(f"[Ingestion] Vision OCR page {source_page} failed: {exc}")
-                page_texts.append("")
+                self._print_api_ocr_error_once(str(exc))
+                return []
         return page_texts
 
     def _call_vision_ocr(self, image, page_idx: int, cfg: dict) -> str:

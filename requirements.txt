@@ -1,9 +1,9 @@
-# ── Web Server ────────────────────────────────────────────────────
+#  Web Server 
 fastapi>=0.111.0
 uvicorn>=0.29.0
 python-multipart>=0.0.9      # Required for FastAPI file upload endpoints
 
-# ── PDF Parsing & OCR ─────────────────────────────────────────────
+#  PDF Parsing & OCR 
 pdfplumber>=0.11.0            # Primary text-layer PDF extraction
 pypdf>=4.2.0                  # PDF metadata and page reading
 Pillow>=10.0.0                # Image manipulation for scanned PDF pages
@@ -13,20 +13,20 @@ pytesseract>=0.3.10           # Tesseract OCR wrapper
 easyocr>=1.7.2                # Deep-learning OCR (handles handwriting/stamps)
 opencv-python-headless>=4.10.0 # Image preprocessing before OCR
 
-# ── Local LLM & Transformers ──────────────────────────────────────
+#  Local LLM & Transformers 
 transformers>=4.40.0          # Local LLM inference (flan-t5) and TrOCR model
 torch>=2.2.0                  # PyTorch backend for transformers
 
-# ── LLM API Communication ─────────────────────────────────────────
+#  LLM API Communication 
 requests>=2.31.0              # Direct HTTP calls to Gemini, Anthropic, OpenAI, Groq
 
-# ── Data Validation & Metrics ─────────────────────────────────────
+#  Data Validation & Metrics 
 pydantic>=2.0.0               # Strict schema validation for all agent outputs
 Levenshtein>=0.20.9           # Edit-distance metric for the feedback learning loop
 
-# ── Visualisation ─────────────────────────────────────────────────
+#  Visualisation 
 matplotlib>=3.7.1             # Learning curve plot generation
 numpy>=1.23.0                 # Numerical operations for learning metrics
 
-# ── Environment & Config ──────────────────────────────────────────
+#  Environment & Config 
 python-dotenv>=1.0.1          # .env file loading for API keys and settings

@@ -1,11 +1,8 @@
-/* ================================================================
-   Clinical Discharge Summary Agent — Light Hospital Theme
-   Clean clinical whites, sky blues, medical greens — Inter font
-   ================================================================ */
+/* ClinicalAI — Discharge Summary Agent — Light Hospital Theme */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800&display=swap');
 
-/* ── CSS Variables ───────────────────────────────────────────────── */
+/* CSS variables */
 :root {
     /* Backgrounds */
     --bg-primary:    #F0F6FF;
@@ -66,7 +63,7 @@
     --transition-fast: all 0.15s ease;
 }
 
-/* ── Reset & Base ────────────────────────────────────────────────── */
+/* Reset & base */
 *, *::before, *::after {
     margin: 0;
     padding: 0;
@@ -84,13 +81,13 @@ body {
     overflow-x: hidden;
 }
 
-/* ── Scrollbar ───────────────────────────────────────────────────── */
+/* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg-secondary); }
 ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--blue); }
 
-/* ── Keyframes ───────────────────────────────────────────────────── */
+/* Keyframes */
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(16px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -140,16 +137,16 @@ body {
 
 .animate-in { animation: fadeIn 0.5s ease-out forwards; }
 
-/* ── Layout ──────────────────────────────────────────────────────── */
+/* Layout */
 .app-container {
     max-width: 1360px;
     margin: 0 auto;
     padding: 0 28px;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    TOP NAVIGATION
-   ───────────────────────────────────────────────────────────────── */
+    */
 .top-nav {
     position: sticky;
     top: 0;
@@ -238,9 +235,9 @@ body {
     font-weight: 600;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    PAGE SECTIONS
-   ───────────────────────────────────────────────────────────────── */
+    */
 .page-section {
     display: none;
     padding: 36px 0 80px;
@@ -269,9 +266,9 @@ body {
     font-weight: 400;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    CARDS
-   ───────────────────────────────────────────────────────────────── */
+    */
 .card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -299,9 +296,9 @@ body {
 .glass-card:hover { box-shadow: var(--shadow-md); border-color: rgba(26,111,186,0.2); transform: translateY(-2px); }
 .glass-card-static{ background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-sm); }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    HERO / LANDING PAGE
-   ───────────────────────────────────────────────────────────────── */
+    */
 .hero {
     position: relative;
     overflow: hidden;
@@ -419,9 +416,9 @@ body {
     backdrop-filter: blur(8px);
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    STAT CARDS
-   ───────────────────────────────────────────────────────────────── */
+    */
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -466,9 +463,9 @@ body {
     letter-spacing: 0.5px;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    HOW IT WORKS SECTION
-   ───────────────────────────────────────────────────────────────── */
+    */
 .how-it-works {
     margin-bottom: 40px;
 }
@@ -534,9 +531,9 @@ body {
     line-height: 1.5;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    BUTTONS
-   ───────────────────────────────────────────────────────────────── */
+    */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -567,7 +564,7 @@ body {
 
 .btn-primary:active { transform: translateY(0); }
 
-/* Hero primary – white on dark bg */
+/* Hero primary  white on dark bg */
 .btn-primary-hero {
     background: #FFFFFF;
     color: var(--blue);
@@ -641,9 +638,9 @@ body {
     animation: spin 0.6s linear infinite;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    UPLOAD ZONE
-   ───────────────────────────────────────────────────────────────── */
+    */
 .upload-zone {
     border: 2px dashed #CBD5E1;
     border-radius: var(--radius-xl);
@@ -679,9 +676,9 @@ body {
     color: var(--text-muted);
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    PATIENT CARDS
-   ───────────────────────────────────────────────────────────────── */
+    */
 .patients-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
@@ -736,9 +733,9 @@ body {
     gap: 10px;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    AGENT MONITOR
-   ───────────────────────────────────────────────────────────────── */
+    */
 .agent-header {
     display: flex;
     align-items: center;
@@ -891,9 +888,9 @@ body {
     font-weight: 600;
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   DISCHARGE SUMMARY — DOCUMENT VIEW
-   ───────────────────────────────────────────────────────────────── */
+/* 
+   DISCHARGE SUMMARY  DOCUMENT VIEW
+    */
 .summary-toolbar {
     display: flex;
     align-items: center;
@@ -914,7 +911,7 @@ body {
     margin: 0 auto;
 }
 
-/* ── Official Discharge Document Paper Layout ── */
+/* Discharge document paper layout */
 .discharge-paper {
     background: #fff;
     border: 1px solid #DDE8F5;
@@ -1036,7 +1033,7 @@ body {
 }
 
 .bullet-list li::before {
-    content: '•';
+    content: '';
     color: var(--blue);
     font-weight: 700;
     flex-shrink: 0;
@@ -1085,9 +1082,9 @@ body {
 
 .summary-field-value { color: var(--text-secondary); }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    MEDICATIONS TABLE
-   ───────────────────────────────────────────────────────────────── */
+    */
 .meds-table {
     width: 100%;
     border-collapse: separate;
@@ -1137,9 +1134,9 @@ body {
 .status-UNCHANGED    { background: var(--gray-light);  color: var(--gray); }
 .status-DOSAGE_CHANGED { background: var(--amber-light); color: var(--amber); }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    SAFETY FLAGS
-   ───────────────────────────────────────────────────────────────── */
+    */
 .flags-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
@@ -1190,9 +1187,9 @@ body {
     font-style: italic;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    PENDING RESULTS
-   ───────────────────────────────────────────────────────────────── */
+    */
 .pending-box {
     display: flex;
     align-items: center;
@@ -1207,9 +1204,9 @@ body {
     margin-bottom: 8px;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    DIFF VIEW
-   ───────────────────────────────────────────────────────────────── */
+    */
 .diff-container {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1254,9 +1251,9 @@ body {
     text-decoration: line-through;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    LEARNING PANEL
-   ───────────────────────────────────────────────────────────────── */
+    */
 .iterations-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1360,9 +1357,9 @@ body {
     line-height: 1.6;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    TRACE EXPLORER
-   ───────────────────────────────────────────────────────────────── */
+    */
 .trace-controls {
     display: flex;
     gap: 12px;
@@ -1460,9 +1457,9 @@ body {
 .trace-json .json-string { color: var(--teal); }
 .trace-json .json-number { color: var(--purple); }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    TOAST NOTIFICATIONS
-   ───────────────────────────────────────────────────────────────── */
+    */
 .toast-container {
     position: fixed;
     top: 80px;
@@ -1495,9 +1492,9 @@ body {
 .toast-error   { border-color: rgba(220,38,38,0.3);  color: var(--red);   background: var(--red-light); }
 .toast-info    { border-color: rgba(26,111,186,0.3);  color: var(--blue);  background: var(--blue-light); }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    SKELETON LOADER
-   ───────────────────────────────────────────────────────────────── */
+    */
 .skeleton {
     background: linear-gradient(90deg, #E8EDF2 25%, #F1F5F9 50%, #E8EDF2 75%);
     background-size: 400% 100%;
@@ -1509,9 +1506,9 @@ body {
 .skeleton-text:last-child { width: 60%; }
 .skeleton-card   { height: 150px; border-radius: var(--radius-lg); }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    EMPTY STATE
-   ───────────────────────────────────────────────────────────────── */
+    */
 .empty-state {
     text-align: center;
     padding: 60px 20px;
@@ -1536,9 +1533,9 @@ body {
     color: var(--text-muted);
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    INNER TABS
-   ───────────────────────────────────────────────────────────────── */
+    */
 .inner-tabs {
     display: flex;
     gap: 4px;
@@ -1571,9 +1568,9 @@ body {
     box-shadow: var(--shadow-xs);
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    PATIENT SELECTOR BUTTONS
-   ───────────────────────────────────────────────────────────────── */
+    */
 .patient-selector {
     display: flex;
     gap: 10px;
@@ -1606,9 +1603,9 @@ body {
     color: var(--blue);
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   DRAFTS PAGE — SIDEBAR LAYOUT
-   ───────────────────────────────────────────────────────────────── */
+/* 
+   DRAFTS PAGE  SIDEBAR LAYOUT
+    */
 .drafts-layout {
     display: grid;
     grid-template-columns: 280px 1fr;
@@ -1688,9 +1685,9 @@ body {
     color: var(--text-muted);
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    PRINT STYLES
-   ───────────────────────────────────────────────────────────────── */
+    */
 @media print {
     body { background: #fff !important; color: #000 !important; }
     .top-nav,
@@ -1722,9 +1719,9 @@ body {
     .flags-grid { break-inside: avoid; }
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    RESPONSIVE
-   ───────────────────────────────────────────────────────────────── */
+    */
 @media (max-width: 1100px) {
     .drafts-layout { grid-template-columns: 1fr; }
     .drafts-sidebar { position: static; }
@@ -1757,9 +1754,9 @@ body {
     .how-steps       { grid-template-columns: 1fr; }
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    API KEY SETTINGS CARD
-   ───────────────────────────────────────────────────────────────── */
+    */
 @keyframes borderPulse {
     0%, 100% { border-color: rgba(26,111,186,0.25); }
     50%       { border-color: rgba(26,111,186,0.55); }
@@ -1979,9 +1976,9 @@ body {
     border: 1px solid rgba(26,111,186,0.1);
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* 
    PROCESSING STATUS PANEL
-   ───────────────────────────────────────────────────────────────── */
+    */
 @keyframes ringRotate {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }

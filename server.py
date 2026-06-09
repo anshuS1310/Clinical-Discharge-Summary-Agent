@@ -1,4 +1,4 @@
-# server.py — FastAPI Backend for Clinical Discharge Summary Agent UI
+# server.py  FastAPI Backend for Clinical Discharge Summary Agent UI
 import os
 import sys
 import json
@@ -22,7 +22,7 @@ from src.doctor_sim import DoctorSimulator
 from src.learning_engine import FeedbackLearningEngine
 from src.models import DischargeSummaryDraft, AgentStepTrace, CompleteExecutionPayload
 
-# ── App Init ──────────────────────────────────────────────────────────
+# App init
 app = FastAPI(title="Clinical Discharge Summary Agent API", version="1.0.0")
 
 app.add_middleware(
@@ -33,9 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Shared State ──────────────────────────────────────────────────────
-# In-memory stores that persist for the lifetime of the server process.
-# This keeps things simple — no database needed.
+# Shared state — persists for the lifetime of the server process
 extracted_patients: Dict[str, str] = {}          # patient_name -> raw_text
 pipeline_results: Dict[str, dict] = {}           # patient_name -> full pipeline result
 learning_engine = FeedbackLearningEngine()
@@ -46,7 +44,7 @@ os.makedirs("output/drafts", exist_ok=True)
 os.makedirs("output/traces", exist_ok=True)
 os.makedirs("output/plots", exist_ok=True)
 
-# ── Request / Response Models ─────────────────────────────────────────
+# Request / response models
 
 class RunAgentRequest(BaseModel):
     patient_name: str
@@ -68,7 +66,7 @@ class RunLearningRequest(BaseModel):
 class SetApiKeyRequest(BaseModel):
     api_key: str
 
-# ── API Endpoints ─────────────────────────────────────────────────────
+# API endpoints
 
 @app.post("/api/set-api-key")
 async def set_api_key(req: SetApiKeyRequest):
@@ -310,17 +308,16 @@ async def get_learning_curve():
     return {"learning_data": all_data}
 
 
-# ── Serve Frontend ────────────────────────────────────────────────────
-# This MUST be last so it doesn't intercept API routes
+# Serve frontend — must be last so it doesn't intercept API routes
 web_dir = os.path.join(os.path.dirname(__file__), "web")
 if os.path.isdir(web_dir):
     app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
 
-# ── Run ───────────────────────────────────────────────────────────────
+# Run directly
 if __name__ == "__main__":
     import uvicorn
     print("\n" + "="*70)
-    print("  CLINICAL DISCHARGE SUMMARY AGENT — WEB INTERFACE")
+    print("  CLINICAL DISCHARGE SUMMARY AGENT  WEB INTERFACE")
     print("  Open your browser at: http://localhost:8000")
     print("="*70 + "\n")
     uvicorn.run(app, host="0.0.0.0", port=8000)

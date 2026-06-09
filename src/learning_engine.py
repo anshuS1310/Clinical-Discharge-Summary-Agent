@@ -101,7 +101,7 @@ class FeedbackLearningEngine:
             f"[Learning Engine] {patient_id} | "
             f"Iteration {len(self.performance_history[patient_id])} | "
             f"Edit distance: {distance:.4f}"
-            + (" ✓ Perfect alignment" if distance == 0.0 else "")
+            + ("  Perfect alignment" if distance == 0.0 else "")
         )
 
     def generate_and_save_learning_curve(self, output_image_path: str):
@@ -110,7 +110,7 @@ class FeedbackLearningEngine:
         decreases across iterations for each patient.
         """
         if not self.performance_history:
-            print("[Learning Engine] No iteration data recorded — skipping chart generation.")
+            print("[Learning Engine] No iteration data recorded  skipping chart generation.")
             return
 
         plt.figure(figsize=(9, 5.5))
@@ -138,7 +138,7 @@ class FeedbackLearningEngine:
                     ha="center", fontsize=9, fontweight="semibold", color=color,
                 )
 
-        plt.title("Clinician Feedback Loop — Edit Distance Over Iterations", fontsize=12, fontweight="bold", pad=15)
+        plt.title("Clinician Feedback Loop  Edit Distance Over Iterations", fontsize=12, fontweight="bold", pad=15)
         plt.xlabel("Optimization Iteration", fontsize=10, labelpad=8)
         plt.ylabel("Normalized Edit Distance (0 = perfect alignment)", fontsize=10, labelpad=8)
         plt.ylim(-0.05, 1.05)

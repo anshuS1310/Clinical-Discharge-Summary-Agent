@@ -70,6 +70,12 @@
             "item_involved": "discharge_condition",
             "description": "OCR did not provide a reliable discharge condition.",
             "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
+        },
+        {
+            "category": "MISSING_DATA",
+            "item_involved": "medical_record_number, age_and_gender, hospital_course, follow_up_instructions",
+            "description": "Required fields were not reliably sourced from OCR/API extraction.",
+            "action_taken": "Marked missing and flagged for clinician review."
         }
     ]
 }

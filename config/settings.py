@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-# ── Agent Constraints ─────────────────────────────────────────────────────
+# Agent constraints
 MAX_AGENT_STEPS = 10   # Hard cap on ReAct loop iterations to prevent runaway execution
 API_TIMEOUT     = 30.0 # Seconds to wait for an LLM API response before failing over
 
@@ -21,7 +21,7 @@ def get_llm_config(cli_api_key: str = None) -> dict:
       1. cli_api_key argument (passed from --api-key CLI flag or web UI)
       2. LLM_API_KEY env var
       3. OPENAI_API_KEY / GEMINI_API_KEY / GOOGLE_API_KEY env vars
-      4. No key found → local transformer mode
+      4. No key found  local transformer mode
 
     Returns a dict with keys:
       api_key, base_url, model_name, provider, is_live
@@ -49,7 +49,7 @@ def get_llm_config(cli_api_key: str = None) -> dict:
     if api_key.startswith("your_") or api_key.startswith("sk-proj-***") or len(api_key) < 10:
         return _local_transformer_config()
 
-    # ── Auto-detect provider from key prefix ──────────────────────────
+    # Auto-detect provider from key prefix
     env_base_url  = os.getenv("LLM_BASE_URL")
     env_model     = os.getenv("LLM_MODEL_NAME")
 
@@ -79,19 +79,19 @@ def get_llm_config(cli_api_key: str = None) -> dict:
         default_model = "gemini-2.5-flash"
 
     else:
-        # Unknown key format — treat as generic OpenAI-compatible endpoint
+        # Unknown key format  treat as generic OpenAI-compatible endpoint
         provider      = "generic"
         default_url   = env_base_url or "https://api.openai.com/v1"
         default_model = env_model    or "gpt-4o"
 
-    # ── Resolve final base URL (avoid cross-provider URL mismatches) ──
+    # Resolve final base URL — avoid cross-provider URL mismatches
     resolved_url = env_base_url or default_url
     if provider == "gemini" and "api.openai.com" in resolved_url:
         resolved_url = default_url
     elif provider == "openai" and "googleapis.com" in resolved_url:
         resolved_url = default_url
 
-    # ── Resolve final model name ──────────────────────────────────────
+    # Resolve final model name
     resolved_model = env_model or default_model
     if provider == "gemini" and "gpt-" in resolved_model.lower():
         resolved_model = default_model
