@@ -1,50 +1,18 @@
 [
     {
         "step_number": 1,
-        "reasoning": "Ingested source notes for patient H D Nagaraja. I need to run a medication reconciliation to compare admission vs discharge medications.",
-        "action_chosen": "CALL_TOOL: MedicationReconciliation",
-        "inputs": "Patient raw record - Past history & Discharge advice",
-        "result": "Admission medications: Outpatient medications are not documented on admission.\nDischarge medications: Inj. Lantus 10 units SC, Inj. Human Actrapid/Humalog SC.\nDiscrepancy: Outpatient medications were not reconciled. Additionally, broad-spectrum IV antibiotic (Meromac) was given in-hospital, but no oral antibiotic is listed at discharge.",
-        "next_decision": "escalate_missing_data"
+        "reasoning": "No live LLM is available for this non-demo patient, so I am extracting only explicitly documented fields from the parsed PDF text.",
+        "action_chosen": "LOCAL_EXTRACTION",
+        "inputs": "Parsed raw clinical text",
+        "result": "Generated a conservative draft from regex-based section and field extraction. Missing values are preserved as missing.",
+        "next_decision": "finalize_draft"
     },
     {
         "step_number": 2,
-        "reasoning": "The admission outpatient medication history is missing. I must escalate this to ensure home medications are properly resumed.",
-        "action_chosen": "CALL_TOOL: FlagContradiction",
-        "inputs": "Omission of Outpatient Medication History",
-        "result": "Successfully registered MISSING_DATA safety flag.",
-        "next_decision": "check_antibiotic_discrepancy"
-    },
-    {
-        "step_number": 3,
-        "reasoning": "The patient was on broad-spectrum IV antibiotics for suspected pyelonephritis but is discharged without oral antibiotics. I must flag this medication discrepancy.",
-        "action_chosen": "CALL_TOOL: FlagContradiction",
-        "inputs": "Omission of Discharge Antibiotic",
-        "result": "Successfully registered MEDICATION_MISMATCH safety flag.",
-        "next_decision": "check_pending_labs"
-    },
-    {
-        "step_number": 4,
-        "reasoning": "I need to check for any pending laboratory or culture reports in the patient's records.",
-        "action_chosen": "CALL_TOOL: PendingResultsCheck",
-        "inputs": "Patient lab details & hospital course",
-        "result": "Blood culture and urine culture were drawn on 27/02/2026; reports are still awaited.",
-        "next_decision": "escalate_pending_results"
-    },
-    {
-        "step_number": 5,
-        "reasoning": "The blood and urine cultures are pending. I must mark this pending to prevent clinician oversight.",
-        "action_chosen": "CALL_TOOL: FlagContradiction",
-        "inputs": "Outstanding Cultures",
-        "result": "Successfully registered PENDING_RESULT_WARNING safety flag.",
-        "next_decision": "check_bulky_kidneys"
-    },
-    {
-        "step_number": 6,
-        "reasoning": "The USG report showed bulky kidneys suggesting pyelonephritis. I need to verify that serum creatinine was monitored and remained stable.",
-        "action_chosen": "CALL_TOOL: DiagnosticCheck",
-        "inputs": "Serum Creatinine records",
-        "result": "Serum creatinine was monitored: 1.02 mg/dL on 28/02 and 1.04 mg/dL on 01/03, indicating stable renal function.",
-        "next_decision": "finalize_draft"
+        "reasoning": "Used local Transformers text2text-generation pipeline with google/flan-t5-small to polish extracted narrative fields.",
+        "action_chosen": "LOCAL_TRANSFORMERS_PIPELINE",
+        "inputs": "hospital_course and follow_up_instructions",
+        "result": "Updated narrative fields using a CPU-friendly local model while preserving structured extracted facts.",
+        "next_decision": "validate_schema_and_export"
     }
 ]

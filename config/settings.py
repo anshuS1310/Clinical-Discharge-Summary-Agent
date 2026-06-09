@@ -1,105 +1,118 @@
 # config/settings.py
+# Resolves the LLM configuration at runtime. Auto-detects the provider,
+# model, and API endpoint from the key prefix. Falls back to a local
+# Transformer model if no valid key is found.
+
 import os
 from dotenv import load_dotenv
 
-# Load workspace environment variables with override enabled
 load_dotenv(override=True)
 
-# Rigid Agent Constraints
-MAX_AGENT_STEPS = 10  # Strict iteration cap to prevent infinite runtime loops
-API_TIMEOUT = 30.0    # Operational threshold for robust failure handling
+# ── Agent Constraints ─────────────────────────────────────────────────────
+MAX_AGENT_STEPS = 10   # Hard cap on ReAct loop iterations to prevent runaway execution
+API_TIMEOUT     = 30.0 # Seconds to wait for an LLM API response before failing over
 
-def get_llm_config(cli_api_key=None) -> dict:
+
+def get_llm_config(cli_api_key: str = None) -> dict:
     """
-    Resolves the LLM configuration dynamically.
-    Auto-detects provider and endpoints from the resolved API key prefix.
+    Returns a configuration dict for the LLM to use this run.
+
+    Priority order for the API key:
+      1. cli_api_key argument (passed from --api-key CLI flag or web UI)
+      2. LLM_API_KEY env var
+      3. OPENAI_API_KEY / GEMINI_API_KEY / GOOGLE_API_KEY env vars
+      4. No key found → local transformer mode
+
+    Returns a dict with keys:
+      api_key, base_url, model_name, provider, is_live
     """
-    # 1. Resolve API Key (CLI argument overrides env vars)
-    api_key = cli_api_key or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    
-    if not api_key:
-        return {
-            "api_key": None,
-            "base_url": None,
-            "model_name": None,
-            "is_live": False
-        }
-    
-    api_key = api_key.strip()
-    
-    # Check if it's a dummy or mock key from the test environment to run cleanly in simulation mode
-    is_dummy = (
-        api_key.startswith("your_")
-        or api_key.startswith("sk-proj-***")
-        or len(api_key) < 10
+    # Allow explicitly forcing local mode via env var
+    provider_override = (os.getenv("LLM_PROVIDER") or "").strip().lower()
+    if provider_override in {"local", "local_transformers", "transformers"}:
+        return _local_transformer_config()
+
+    # Resolve the best available API key
+    api_key = (
+        cli_api_key
+        or os.getenv("LLM_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("GEMINI_API_KEY")
+        or os.getenv("GOOGLE_API_KEY")
     )
-    if is_dummy:
-        return {
-            "api_key": None,
-            "base_url": None,
-            "model_name": None,
-            "is_live": False
-        }
 
-    # 2. Auto-detect provider and assign default configurations
-    base_url = os.getenv("LLM_BASE_URL")
-    model_name = os.getenv("LLM_MODEL_NAME")
-    
+    if not api_key:
+        return _local_transformer_config()
+
+    api_key = api_key.strip()
+
+    # Treat placeholder / demo keys as "no key" so we don't try live calls
+    if api_key.startswith("your_") or api_key.startswith("sk-proj-***") or len(api_key) < 10:
+        return _local_transformer_config()
+
+    # ── Auto-detect provider from key prefix ──────────────────────────
+    env_base_url  = os.getenv("LLM_BASE_URL")
+    env_model     = os.getenv("LLM_MODEL_NAME")
+
     if api_key.startswith("sk-ant-"):
-        # Anthropic Key
-        default_base_url = "https://api.anthropic.com/v1"
+        provider     = "anthropic"
+        default_url  = "https://api.anthropic.com/v1"
         default_model = "claude-3-5-sonnet-20240620"
-        provider = "anthropic"
+
     elif api_key.startswith("sk-or-"):
-        # OpenRouter Key
-        default_base_url = "https://openrouter.ai/api/v1"
+        provider      = "openrouter"
+        default_url   = "https://openrouter.ai/api/v1"
         default_model = "meta-llama/llama-3.1-8b-instruct:free"
-        provider = "openrouter"
+
     elif api_key.startswith("sk-"):
-        # OpenAI Key
-        default_base_url = "https://api.openai.com/v1"
+        provider      = "openai"
+        default_url   = "https://api.openai.com/v1"
         default_model = "gpt-4o"
-        provider = "openai"
+
     elif api_key.startswith("gsk_"):
-        # Groq Key
-        default_base_url = "https://api.groq.com/openai/v1"
+        provider      = "groq"
+        default_url   = "https://api.groq.com/openai/v1"
         default_model = "llama3-8b-8192"
-        provider = "groq"
+
     elif api_key.startswith("AIzaSy") or api_key.startswith("AQ"):
-        # Google Gemini Key
-        default_base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+        provider      = "gemini"
+        default_url   = "https://generativelanguage.googleapis.com/v1beta/openai"
         default_model = "gemini-2.5-flash"
-        provider = "gemini"
-    else:
-        # Generic/Unknown key type: check if custom env configuration exists
-        default_base_url = base_url or "https://api.openai.com/v1"
-        default_model = model_name or "gpt-4o"
-        provider = "generic"
 
-    # Use environment values if they were explicitly set, otherwise use defaults.
-    # Overrides conflicting standard base URLs when the key type differs.
-    resolved_base_url = base_url
-    if not resolved_base_url:
-        resolved_base_url = default_base_url
     else:
-        if provider == "gemini" and "api.openai.com" in resolved_base_url:
-            resolved_base_url = default_base_url
-        elif provider == "openai" and "googleapis.com" in resolved_base_url:
-            resolved_base_url = default_base_url
+        # Unknown key format — treat as generic OpenAI-compatible endpoint
+        provider      = "generic"
+        default_url   = env_base_url or "https://api.openai.com/v1"
+        default_model = env_model    or "gpt-4o"
 
-    resolved_model = model_name
-    if not resolved_model:
+    # ── Resolve final base URL (avoid cross-provider URL mismatches) ──
+    resolved_url = env_base_url or default_url
+    if provider == "gemini" and "api.openai.com" in resolved_url:
+        resolved_url = default_url
+    elif provider == "openai" and "googleapis.com" in resolved_url:
+        resolved_url = default_url
+
+    # ── Resolve final model name ──────────────────────────────────────
+    resolved_model = env_model or default_model
+    if provider == "gemini" and "gpt-" in resolved_model.lower():
         resolved_model = default_model
-    else:
-        if provider == "gemini" and "gpt-" in resolved_model.lower():
-            resolved_model = default_model
-        elif provider == "openai" and "gemini" in resolved_model.lower():
-            resolved_model = default_model
+    elif provider == "openai" and "gemini" in resolved_model.lower():
+        resolved_model = default_model
 
     return {
-        "api_key": api_key,
-        "base_url": resolved_base_url.rstrip("/"),
+        "api_key":    api_key,
+        "base_url":   resolved_url.rstrip("/"),
         "model_name": resolved_model,
-        "provider": provider,
-        "is_live": True
+        "provider":   provider,
+        "is_live":    True,
+    }
+
+
+def _local_transformer_config() -> dict:
+    """Returns the configuration for running fully offline with a local model."""
+    return {
+        "api_key":    None,
+        "base_url":   None,
+        "model_name": os.getenv("LOCAL_TRANSFORMER_MODEL", "google/flan-t5-small"),
+        "provider":   "local_transformers",
+        "is_live":    True,
     }

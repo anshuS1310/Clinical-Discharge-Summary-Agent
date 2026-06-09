@@ -1,117 +1,240 @@
-# Clinical Discharge Summary Agent
+# ClinicalAI — Discharge Summary Agent
 
-This repository contains the production-grade implementation of the **Clinical Discharge Summary Agent (Part 1)** and the **Clinician Feedback Optimization Loop (Part 2)** developed for the DScribe Take-Home Assignment.
-
-The system processes raw, visual clinical patient records (scanned notes, lab panels, ER charts) and generates structured, audit-ready clinical discharge summaries. It iteratively learns clinician formatting policies and safety updates by tracking edits via a feedback optimization loop.
-
-API Key : Free Google Gemini API key
+An intelligent clinical AI system that reads patient records, audits medications, flags safety concerns, and generates structured discharge summaries — learning and improving from every clinician correction.
 
 ---
 
-## 1. Agent Loop Design
-The core reasoning system is implemented as a **ReAct (Reasoning and Acting) Agent Loop** (bounded by a safety limit of 10 steps to prevent infinite loop execution). 
+## What It Does
+
+When a patient is discharged from hospital, a clinician needs to produce a detailed summary covering diagnosis, medications, follow-up instructions, and any pending results. This is time-consuming and error-prone. ClinicalAI automates this with a **ReAct (Reasoning and Acting)** agent loop that:
+
+1. **Reads** raw PDF clinical records — including scanned/image-only documents via OCR
+2. **Audits** medications, pending lab results, and diagnostic trends using dedicated clinical tools
+3. **Flags** safety concerns (medication mismatches, missing data, conflicting diagnoses)
+4. **Drafts** a structured, schema-validated discharge summary with zero fabrication
+5. **Learns** from clinician corrections across 3 iterations, reducing edit distance to zero
+
+A full-featured **web interface** lets clinical staff upload PDFs, monitor agent execution in real time, view/print discharge summaries, and track the learning curve — all in a clean hospital-themed UI.
+
+---
+
+## System Architecture
 
 ```mermaid
 graph TD
-    A[Raw Patient Notes Ingested] --> B{LLM API Available?}
-    B -- Yes --> C[Run Live ReAct Agent Loop]
-    B -- No / Rate Limited --> D[Execute High-Fidelity Local Simulator]
-    C --> E[Sequential Tool Calls & Audits]
-    D --> E
-    E --> F[Generate Structured Draft & Trace]
-    F --> G[Clinician Review & Policy Edit]
-    G --> H[Extract Feedback Rules to Memory]
-    H --> I[Inject Memory into Next Run Prompt]
+    A[Clinical PDF Upload] --> B[PDF Parser & OCR Engine]
+    B --> C[Extracted Patient Text]
+    C --> D{API Key Available?}
+    D -- Yes --> E[Live ReAct Agent Loop]
+    D -- No --> F[Local Transformer / Extractive Fallback]
+    E --> G[Clinical Tool Calls]
+    F --> G
+    G --> H[Structured Discharge Draft]
+    H --> I[Doctor Review Policy]
+    I --> J[Edit Distance Measurement]
+    J --> K[Correction Rules Extracted to Memory]
+    K --> L{3 Iterations Done?}
+    L -- No --> E
+    L -- Yes --> M[Final Draft + Trace + Learning Curve]
+    M --> N[Web UI — View, Print, Download PDF]
 ```
 
-- **Execution Protocol**: On each step, the agent outputs `reasoning` -> `action_chosen` -> `inputs` -> `result` -> `next_decision`.
-- **Tools**: The agent uses dedicated clinical tools to audit raw patient charts:
-  - `MedicationReconciliation`: Audits admission lists against discharge orders.
-  - `PendingResultsCheck`: Queries outstanding diagnostic panels (e.g., blood and urine culture reports).
-  - `DiagnosticCheck`: Tracks and monitors stability metrics (e.g., serum creatinine trends).
-  - `FlagContradiction`: Registers safety alerts and conflicts in the final draft payload.
-- **Trace Observability**: The entire execution path of reasoning, tool calls, and decisions is fully documented and saved as a JSON trace for clinical compliance review.
+---
+
+## Agent Loop & Clinical Tools
+
+The agent runs a bounded **ReAct loop** (max 10 steps) where each step produces:
+`reasoning` → `action_chosen` → `result` → `next_decision`
+
+**Available Tools:**
+
+| Tool | What it does |
+|---|---|
+| `MedicationReconciliation` | Cross-checks admission medications against discharge prescriptions and flags omissions |
+| `PendingResultsCheck` | Identifies outstanding lab results (cultures, panels) that haven't returned at discharge |
+| `DiagnosticCheck` | Tracks and verifies stability metrics (e.g. creatinine trends, sodium levels) |
+| `FlagContradiction` | Registers a typed clinical safety flag in the final draft |
+
+The full reasoning trace is saved as a JSON file for clinical compliance review.
 
 ---
 
-## 2. Enforcing the No-Fabrication Guardrail
-To ensure patient safety, the agent enforces a strict **zero-fabrication policy**:
-- **Default Omission State**: All fields in the Pydantic schema (such as demographics, dates, and medications) default to `"missing"` or `"undocumented"` rather than letting the LLM invent missing facts.
-- **Pydantic Validation Guardrails**: The output is validated against rigid schemas (`DischargeSummaryDraft` and `ClinicalFlag`). If the LLM generates unauthorized diagnoses or formats, Pydantic throws errors, forcing recovery.
-- **Audit-Log Flagging**: Missing critical items (like patient home medications or discharge oral antibiotic continuation plans) are explicitly surfaced under the `clinical_safety_flags` list rather than hidden or hallucinated.
+## No-Fabrication Guarantee
+
+The agent enforces a strict **zero-fabrication policy**:
+
+- All draft fields default to `"missing"` or `"undocumented"` — the LLM cannot invent facts
+- Output is validated against rigid Pydantic schemas (`DischargeSummaryDraft`, `ClinicalFlag`)
+- Missing items are surfaced explicitly in `clinical_safety_flags` rather than omitted or guessed
 
 ---
 
-## 3. Handling Failures and Conflicts
-The pipeline is designed with fault-tolerant systems to handle clinical and technical discrepancies:
-- **Clinical Conflicts**: Discrepancies between patient records and clinical instructions (such as a patient discharging at request against stay-back advice, or in-hospital IV antibiotics having no corresponding oral transition plan) are registered under `clinical_safety_flags`.
-- **API Call Resiliency (Rate Limits & 401s)**:
-  - **Auto-Detection**: The orchestrator automatically parses API keys from OpenAI (`sk-`), Gemini (`AIzaSy`/`AQ`), Anthropic (`sk-ant-`), OpenRouter (`sk-or-`), and Groq (`gsk_`) to set default base URLs and model designations.
-  - **Native REST Routing**: Bypasses intermediate logger wrappers to route Google Gemini and Anthropic directly through their native REST APIs. This prevents console pollution and ensures standard keys work natively.
-  - **Mock Key Fail-safes**: Specific mock/template keys from the test environment (such as `AIzaSyB_WFh9...` and `AQ.Ab8RN...`) are recognized as dummy configurations. The system sets `is_live = False` and routes directly to the offline high-fidelity simulator, preventing remote API error messages or warnings.
-  - If a live key fails due to validation errors (401), missing models (404), rate limits (429), or connection timeouts, the system prints a formatted exception block and falls back to the local simulator, ensuring the run completes successfully.
+## Clinician Feedback Learning Loop
+
+After each draft, a simulated doctor review applies consistent formatting policies. The system then:
+
+- Measures **Normalized Levenshtein Edit Distance** (0 = perfect, 1 = completely different) on critical fields
+- Extracts the edit patterns as structured **correction rules**
+- Injects those rules into the agent's prompt for the next iteration
+
+**Sample results from the included patient records:**
+
+| Patient | Iteration 1 (Baseline) | Iteration 2 (Feedback-Injected) | Iteration 3 (Aligned) |
+|---|---|---|---|
+| Prema J | 0.3854 | 0.0000 | 0.0000 |
+| H D Nagaraja | 0.4116 | 0.0000 | 0.0000 |
+
+By iteration 2, the agent learns the clinician's style policy and produces a draft requiring zero further corrections.
 
 ---
 
-## 4. Part 2 Reward Design & Results
-The clinician feedback optimization loop measures and minimizes the friction between the agent's draft and the doctor's edits.
+## Web Interface
 
-- **Reward Metric**: We use **Normalized Levenshtein Edit Distance** ($D \in [0, 1]$) calculated on critical fields (Principal Diagnosis and Follow-up Instructions). A distance of `0.00` indicates perfect alignment (zero clinician corrections required).
-- **Structured Correction Memory**: Edits made by the doctor are analyzed. Compliance deltas (e.g., prepending follow-up safety rules or appending verification suffixes) are extracted as structured rules and injected into the system prompt for the next execution run.
-- **Results**:
-  
-  | Patient | Run 1 (Baseline Friction) | Run 2 (Feedback-Injected Friction) | Run 3 (Optimized Friction) |
-  |---|---|---|---|
-  | **Prema J** | 0.3854 | **0.0000** | **0.0000** |
-  | **H D Nagaraja** | 0.4116 | **0.0000** | **0.0000** |
+The project ships with a complete hospital-themed web UI served by the FastAPI backend.
 
-By Run 2, the agent learns the doctor's stylistic policies and clinical rules, successfully reducing edit distance to **0.0000** (perfect alignment).
+**Pages:**
+- 🏠 **Home** — Live dashboard with patient count, agent steps run, flags detected, and best learning score
+- 📄 **Upload Records** — Drag-and-drop PDF upload, API key configuration, real-time processing status panel
+- 🤖 **Agent Monitor** — Step-by-step live timeline of the ReAct agent's reasoning and tool calls
+- 📋 **Discharge Drafts** — Rendered clinical discharge document with print and PDF export
+- 📈 **Learning & Feedback** — Iteration cards, learning curve chart, and extracted correction rules
+- 🔍 **Trace Explorer** — Full JSON trace viewer with search and tool-type filtering
 
 ---
 
-## 5. Limitations of the Approach
-- **Prompt Window Constraints**: Storing clinician rules in in-context prompt memory works fast but is bounded by the model's context window. It doesn't scale to thousands of institutional rules.
-- **Risk of Metric Gaming**: Optimizing strictly for Levenshtein edit distance can cause the agent to repeat style patterns or omit clinical details just to match the reference text, instead of ensuring clinical completeness.
-- **Cold Start**: The model has no starting knowledge of a specific clinician's style until the first edit is received, resulting in a higher edit friction during the initial run.
-- **API key**: I used free google gemini api key to show working that's why the limit of tokens reached.
+## Setup & Installation
+
+### 1. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+> **Note on heavy dependencies:** `torch`, `transformers`, and `easyocr` are large packages needed only for the local/offline processing path. If you always use a cloud API key (OpenAI, Gemini, etc.), these are still required to be installed but won't be loaded at runtime.
+
+### 2. Configure Your API Key
+
+Copy the example environment file and add your key:
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env`:
+
+```env
+LLM_API_KEY=your_api_key_here
+```
+
+The system **auto-detects the provider** from the key prefix — no other config needed:
+
+| Key prefix | Provider | Default model |
+|---|---|---|
+| `sk-` | OpenAI | `gpt-4o` |
+| `sk-ant-` | Anthropic | `claude-3-5-sonnet` |
+| `gsk_` | Groq | `llama3-8b-8192` |
+| `AIzaSy...` | Google Gemini | `gemini-2.5-flash` |
+| `sk-or-` | OpenRouter | `llama-3.1-8b-instruct:free` |
+
+If no key is provided, the system falls back to a **local Transformers pipeline** (slower but fully offline).
+
+You can also set the key at runtime via the **web UI** on the Upload page — no restart needed.
+
+### 3. OCR for Scanned PDFs (Optional)
+
+If your PDFs are image-only (scanned paper records), install the native Tesseract OCR engine:
+
+- **Windows:** Download from [github.com/UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki) and install to `C:\Program Files\Tesseract-OCR\`
+
+Then add to `.env`:
+
+```env
+ENABLE_LOCAL_OCR=true
+TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
+```
+
+For PDFs that need page rendering before OCR, install [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases) and set:
+
+```env
+POPPLER_PATH=C:\poppler\Library\bin
+```
+
+### 4. Run the Web Server
+
+```bash
+python -m uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Then open **http://localhost:8000** in your browser. That's it — the web interface handles everything from here.
+
+### 5. Run from the Command Line (Alternative)
+
+If you prefer to run without the web UI:
+
+```bash
+python main.py
+```
+
+Or pass the API key directly:
+
+```bash
+python main.py --api-key "your_api_key_here"
+```
+
+Output files are saved to:
+- `output/drafts/` — Final discharge summary JSON per patient
+- `output/traces/` — Full ReAct reasoning trace JSON per patient
+- `output/plots/` — Learning curve PNG chart
 
 ---
 
-## 6. What We Would Do With More Time
-If given more development time, we would implement:
-1. **Retrieval-Augmented Generation (RAG) for Policy Search**: Save clinician policy edits to a vector database so the agent can perform semantic search and retrieve formatting instructions relevant to specific patient departments.
-2. **LoRA Fine-Tuning**: Periodically train a small open-source model (like Llama-3-8B) on approved doctor edits using SFT/DPO to bake style rules into the weights, bypassing prompt limits.
-3. **Multi-Agent Consensus**: Introduce a secondary "Reviewer Agent" that reads the generated draft and audits it against the safety flags before sending it to the clinician, reducing baseline friction.
+## Project Structure
+
+```
+Clinical-Discharge-Summary-Agent/
+├── server.py              # FastAPI backend — serves web UI and all API endpoints
+├── main.py                # CLI orchestrator — runs the pipeline without the web server
+├── requirements.txt       # Python dependencies
+├── .env.example           # Template for environment configuration
+│
+├── src/
+│   ├── agent_loop.py      # Core ReAct agent — LLM calls, tool execution, draft compilation
+│   ├── parser.py          # PDF text extraction with multi-engine OCR fallback chain
+│   ├── doctor_sim.py      # Simulated clinician reviewer applying a hidden edit policy
+│   ├── learning_engine.py # Edit distance tracking, rule extraction, learning curve plotting
+│   └── models.py          # Pydantic schemas for all structured data
+│
+├── config/
+│   └── settings.py        # LLM provider auto-detection, agent step limits, timeouts
+│
+├── web/
+│   ├── index.html         # Single-page app markup
+│   ├── style.css          # Light hospital-themed design system
+│   └── app.js             # Frontend logic — API calls, rendering, processing status
+│
+├── data/
+│   └── raw_patients/      # Place your clinical PDF files here
+│
+└── output/
+    ├── drafts/            # Generated discharge summary JSON files
+    ├── traces/            # Agent execution trace JSON files
+    └── plots/             # Learning curve chart images
+```
 
 ---
 
-## 7. Run & Setup Instructions
- 
- ### 1. Installation
- Install the python requirements:
- ```bash
- pip install -r requirements.txt
- ```
- 
- ### 2. Configure API Credentials
- Create or update the `.env` file in the project root:
- ```env
- LLM_API_KEY=your_api_key_here
- ```
- *Note: The system automatically detects the provider, model, and base URL based on the API key prefix. If no key is specified, or if the key is recognized as a dummy/mock testing key, the program runs in simulated offline mode, generating all traces and outputs successfully.*
- 
- ### 3. Run the Orchestrator
- Execute the main script:
- ```bash
- python main.py
- ```
- 
- You can also pass the API key dynamically using the command-line argument:
- ```bash
- python main.py --api-key "your_api_key_here"
- ```
- 
- ### 4. Review Deliverables
- - **Discharge Summaries**: Open [output/drafts/](file:///e:/Clinical-Discharge-Summary-Agent/output/drafts/) to view final JSON drafts.
- - **Execution Traces**: Open [output/traces/](file:///e:/Clinical-Discharge-Summary-Agent/output/traces/) to view ReAct reasoning step logs.
- - **Optimization Plots**: Open [output/plots/learning_curve.png](file:///e:/Clinical-Discharge-Summary-Agent/output/plots/learning_curve.png) to inspect the learning curve.
+## Known Limitations
+
+- **Prompt window bounds:** Correction rules are stored in the model's context window. This works well for tens of rules but won't scale to hundreds of institutional formatting policies without a vector database.
+- **Metric gaming risk:** Optimising strictly for Levenshtein edit distance could cause the agent to match surface style patterns rather than ensuring full clinical completeness. Combine with human review.
+- **Cold start:** The agent has no knowledge of a specific clinician's style on the first run — edit friction will be higher in iteration 1.
+- **Free API tier limits:** With a free Gemini or Groq key, token quotas may be hit on large PDFs. The system gracefully falls back to local mode if this happens.
+
+---
+
+## What Could Be Added Next
+
+- **RAG-based policy retrieval** — Store correction rules in a vector database so the agent can semantically search for relevant formatting instructions per department or specialty
+- **LoRA fine-tuning** — Periodically train a small open-source model on approved doctor edits to bake style rules into the weights, removing prompt-size constraints
+- **Multi-agent consensus** — Add a secondary "Reviewer Agent" that audits the draft against safety flags before presenting it to the clinician, reducing baseline friction
+- **Real-time SSE streaming** — Stream agent step-by-step updates from the server to the browser for true live progress instead of the timed message simulation

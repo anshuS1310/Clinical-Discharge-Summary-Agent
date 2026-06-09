@@ -1,42 +1,18 @@
 [
     {
         "step_number": 1,
-        "reasoning": "Ingested source notes for patient Prema J. I need to run a medication reconciliation to compare admission vs discharge medications.",
-        "action_chosen": "CALL_TOOL: MedicationReconciliation",
-        "inputs": "Patient raw record - Past history & Discharge advice",
-        "result": "Admission medications: Outpatient treatment for Thyroid disorder is documented in past history, but specific drug/dose is missing.\nDischarge medications: Raciper 40mg, Emeset 4mg, Oflox TZ, M Strong, Zedott, Entroflora, Meftal Spas, Lopiramide 2mg.\nDiscrepancy: Outpatient thyroid medication was omitted at discharge with no documented reason.",
-        "next_decision": "escalate_mismatch"
+        "reasoning": "No live LLM is available for this non-demo patient, so I am extracting only explicitly documented fields from the parsed PDF text.",
+        "action_chosen": "LOCAL_EXTRACTION",
+        "inputs": "Parsed raw clinical text",
+        "result": "Generated a conservative draft from regex-based section and field extraction. Missing values are preserved as missing.",
+        "next_decision": "finalize_draft"
     },
     {
         "step_number": 2,
-        "reasoning": "The outpatient thyroid medication was omitted without documented reasoning. I must escalate this as a safety concern.",
-        "action_chosen": "CALL_TOOL: FlagContradiction",
-        "inputs": "Omission of Thyroid Medication",
-        "result": "Successfully registered MEDICATION_MISMATCH safety flag.",
-        "next_decision": "check_pending_labs"
-    },
-    {
-        "step_number": 3,
-        "reasoning": "I need to check for any pending laboratory or diagnostic test reports in the patient's record.",
-        "action_chosen": "CALL_TOOL: PendingResultsCheck",
-        "inputs": "Patient lab details & hospital course",
-        "result": "Urine culture and sensitivity test was sent due to pus cells/bacteria in routine analysis; report is still awaited.",
-        "next_decision": "escalate_pending_results"
-    },
-    {
-        "step_number": 4,
-        "reasoning": "A urine culture was sent but is not yet finalized. I must mark this pending to prevent clinician oversight.",
-        "action_chosen": "CALL_TOOL: FlagContradiction",
-        "inputs": "Outstanding Urine Culture",
-        "result": "Successfully registered PENDING_RESULT_WARNING safety flag.",
-        "next_decision": "check_conflicting_diagnoses"
-    },
-    {
-        "step_number": 5,
-        "reasoning": "The records note that the patient was advised to stay back but attender refused. I will flag this conflict between clinical advice and patient disposition.",
-        "action_chosen": "CALL_TOOL: FlagContradiction",
-        "inputs": "Discharge at Request vs Stay Back Advice",
-        "result": "Successfully registered CONFLICTING_DIAGNOSES / disposition flag.",
-        "next_decision": "finalize_draft"
+        "reasoning": "Used local Transformers text2text-generation pipeline with google/flan-t5-small to polish extracted narrative fields.",
+        "action_chosen": "LOCAL_TRANSFORMERS_PIPELINE",
+        "inputs": "hospital_course and follow_up_instructions",
+        "result": "Updated narrative fields using a CPU-friendly local model while preserving structured extracted facts.",
+        "next_decision": "validate_schema_and_export"
     }
 ]

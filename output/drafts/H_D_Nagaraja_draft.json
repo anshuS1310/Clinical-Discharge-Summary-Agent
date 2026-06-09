@@ -1,69 +1,75 @@
 {
     "patient_name": "H D Nagaraja",
-    "medical_record_number": "SSS32770",
-    "age_and_gender": "45 Years / Male",
-    "admission_date": "26/02/2026 07:22 PM",
-    "discharge_date": "02/03/2026",
-    "principal_diagnosis": "DIABETIC KETOACIDOSIS [Clinically Verified via Discharge Evaluation Policy]",
+    "medical_record_number": "missing",
+    "age_and_gender": "missing",
+    "admission_date": "04",
+    "discharge_date": "2 DISCHARGE SUMMARY",
+    "principal_diagnosis": "Urinary tract infection [Clinically Verified via Discharge Evaluation Policy]",
     "secondary_diagnoses": [
-        "Type-II Diabetes Mellitus",
-        "Mild hepatomegaly with grade I fatty infiltration",
-        "Cholelithiasis without cholecystitis",
-        "Mildly bulky bilateral kidneys (suspected pyelonephritis)",
-        "Minimal ascites",
-        "Minimal right pleural effusion with underlying subsegmental lung consolidation"
+        "Diabetes mellitus",
+        "Pleural effusion",
+        "Lung consolidation"
     ],
-    "hospital_course": "Patient presented on 26-02-2026 with Diabetic Ketoacidosis (DKA), blood glucose 443 mg/dL, and RR 22/min. Emergency management included IV fluids (NS/RL at 150 ml/hr), insulin infusion (Inj. Human Actrapid), IV pantoprazole, and IV antiemetics. Sudden desaturation in ER corrected with O2 mask. Foley's catheterized. Transitioned to subcutaneous insulin (Inj. Lantus 10 units SC at bedtime and Humalog SC before meals). Experienced a fever spike (102 F) and chills on 27/02, treated with Inj. Tramadol and Inj. Paracetamol (PCT) 1gm. IV Meromac 1gm (meropenem) was started for suspected pyelonephritis. Foley's catheter removed on 01-03-2026. Stable and tolerating soft diet by 02-03-2026.",
+    "hospital_course": "missing",
     "procedures_performed": [
-        "IV Cannulation",
-        "Foley's Catheterisation",
-        "USG Abdomen and Pelvis",
-        "2D Echocardiogram",
-        "ECG"
+        "USG abdomen/pelvis",
+        "IV cannulation"
     ],
-    "discharge_medications": [
-        {
-            "name": "Inj. Lantus (Insulin Glargine)",
-            "dosage": "10 units",
-            "frequency": "SC at bedtime (10 PM)",
-            "status": "ADDED",
-            "reconciliation_note": "Long-acting insulin for glycemic control."
-        },
-        {
-            "name": "Inj. Human Actrapid / Humalog",
-            "dosage": "as per blood glucose",
-            "frequency": "SC before meals",
-            "status": "ADDED",
-            "reconciliation_note": "Rapid-acting insulin for glycemic control."
-        }
-    ],
+    "discharge_medications": [],
     "allergies": [
-        "Not known"
+        "missing"
     ],
-    "follow_up_instructions": "CRITICAL CLINICAL FOLLOW-UP: Please visit the clinic as scheduled. Review with pending blood culture and urine culture reports once available. Review immediately in case of fever, chills, vomiting, or abdominal pain.",
-    "pending_results": [
-        "Blood culture report awaited",
-        "Urine culture report awaited"
-    ],
-    "discharge_condition": "Hemodynamically stable",
+    "follow_up_instructions": "missing",
+    "pending_results": [],
+    "discharge_condition": "missing",
     "clinical_safety_flags": [
         {
             "category": "MISSING_DATA",
-            "item_involved": "Outpatient Medication List",
-            "description": "Outpatient medications prior to admission are missing and not documented in the medical records.",
-            "action_taken": "Flagged for manual clinician review. Alerted in discharge draft."
+            "item_involved": "LLM Review",
+            "description": "This new patient was processed without a live LLM. The local extractor is conservative and may miss complex clinical details.",
+            "action_taken": "Flagged for clinician review."
         },
         {
-            "category": "MEDICATION_MISMATCH",
-            "item_involved": "Discharge Antibiotics",
-            "description": "Patient received IV Meromac (meropenem) for suspected pyelonephritis/UTI during stay, but no oral antibiotic is prescribed at discharge to complete the course.",
-            "action_taken": "Flagged for clinical override. Notified clinician to confirm if antibiotic course should be completed."
+            "category": "MISSING_DATA",
+            "item_involved": "patient_name",
+            "description": "OCR candidate patient name was rejected as non-patient text: REF. DOCTOR.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
         },
         {
-            "category": "PENDING_RESULT_WARNING",
-            "item_involved": "Blood & Urine Cultures",
-            "description": "Blood and urine culture reports are outstanding at time of discharge.",
-            "action_taken": "Marked as pending in final draft. Added instructions to review reports once available."
+            "category": "MISSING_DATA",
+            "item_involved": "medical_record_number",
+            "description": "OCR did not provide a reliable MRN/Pt ID; rejected candidate: Yellow.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
+        },
+        {
+            "category": "MISSING_DATA",
+            "item_involved": "age_and_gender",
+            "description": "OCR did not provide a reliable age and gender; rejected candidate: missing.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
+        },
+        {
+            "category": "MISSING_DATA",
+            "item_involved": "hospital_course",
+            "description": "OCR did not provide a reliable hospital course.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
+        },
+        {
+            "category": "MISSING_DATA",
+            "item_involved": "allergies",
+            "description": "OCR did not provide a reliable allergy value; rejected candidate: NURSES NOTES.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
+        },
+        {
+            "category": "MISSING_DATA",
+            "item_involved": "follow_up_instructions",
+            "description": "OCR did not provide a reliable follow up instructions.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
+        },
+        {
+            "category": "MISSING_DATA",
+            "item_involved": "discharge_condition",
+            "description": "OCR did not provide a reliable discharge condition.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
         }
     ]
 }

@@ -1,12 +1,14 @@
-# main.py
+# main.py — CLI orchestrator for the Clinical Discharge Summary Agent
+# Use this to run the full pipeline without the web server.
+# For the web interface, run: python -m uvicorn server:app --port 8000 --reload
+
 import os
 import sys
 import json
 import argparse
-from typing import Dict, Any
 from dotenv import load_dotenv
 
-# Ensure dotenv override runs at very startup
+# Load .env before any other imports so API keys are available immediately
 load_dotenv(override=True)
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -16,112 +18,123 @@ from src.agent_loop import ClinicalAgentLoop
 from src.doctor_sim import DoctorSimulator
 from src.learning_engine import FeedbackLearningEngine
 
+
 def main():
-    # Parse CLI Arguments for flexible configuration
-    parser_arg = argparse.ArgumentParser(description="Clinical Discharge Summary Agent Orchestrator")
-    parser_arg.add_argument(
+    # ── CLI Arguments ─────────────────────────────────────────────────
+    arg_parser = argparse.ArgumentParser(
+        description="Clinical Discharge Summary Agent — CLI Orchestrator"
+    )
+    arg_parser.add_argument(
         "--api-key", "-k",
         type=str,
         default=None,
-        help="Optional LLM API Key to run in live mode. Overrides environmental keys."
+        help="LLM API key. Overrides the key in .env. Supports OpenAI, Gemini, Anthropic, Groq, OpenRouter.",
     )
-    args = parser_arg.parse_args()
+    args = arg_parser.parse_args()
     cli_key = args.api_key
 
-    print("======================================================================")
-    print("      LAUNCHING CLINICAL DISCHARGE SUMMARY AGENT WORKSPACE            ")
-    print("======================================================================")
-    
-    # 1. Initialize Directories
+    print("=" * 70)
+    print("   ClinicalAI — Discharge Summary Agent")
+    print("=" * 70)
+
+    # ── Create output directories ──────────────────────────────────────
     os.makedirs("output/drafts", exist_ok=True)
     os.makedirs("output/traces", exist_ok=True)
-    os.makedirs("output/plots", exist_ok=True)
-    
+    os.makedirs("output/plots",  exist_ok=True)
+
+    # ── PDF path — update this to point to your clinical PDF ──────────
     pdf_path = "data/raw_patients/patient 2.pdf"
-    
-    # 2. Parsing and Ingestion Phase
+
+    # ── Step 1: Parse patient records from the PDF ────────────────────
+    print(f"\n[1/4] Parsing patient records from: {pdf_path}")
     parser = ClinicalTextParser()
     patient_records = parser.parse_patient_pdf(pdf_path)
-    
-    doctor = DoctorSimulator()
+
+    if not patient_records:
+        print(
+            "\n[Error] No patient records were extracted from the PDF.\n"
+            "        Check that the file exists and is readable."
+        )
+        return
+
+    print(f"      Extracted {len(patient_records)} patient record(s): {list(patient_records.keys())}")
+
+    # ── Step 2: Initialise shared components ──────────────────────────
+    doctor          = DoctorSimulator()
     learning_engine = FeedbackLearningEngine()
-    
-    # 3. Process Patients through the Agent-Doctor Loop
+
+    # ── Step 3: Run the 3-iteration agent-doctor loop per patient ─────
+    print("\n[2/4] Running 3-iteration agent pipeline for each patient...\n")
+
     for patient_name, raw_text in patient_records.items():
-        print(f"\n==============================================================")
-        print(f" PROCESSING PATIENT: {patient_name.upper()} ")
-        print(f"==============================================================")
-        
-        # Iteration 1: Raw Agent Draft Generation (Baseline)
-        print("\n--- [Optimization Run 1: Baseline Generation] ---")
-        agent_run_1 = ClinicalAgentLoop(feedback_memory=[], cli_api_key=cli_key)
-        payload_1 = agent_run_1.run(patient_id=patient_name, raw_clinical_text=raw_text)
-        draft_1 = payload_1.final_draft
-        
-        # Clinician Review
-        edited_1 = doctor.apply_hidden_doctor_policy(draft_1)
-        
-        # Calculate Edit Distance
+        print(f"\n{'=' * 70}")
+        print(f"  Patient: {patient_name.upper()}")
+        print(f"{'=' * 70}")
+
+        # --- Iteration 1: Baseline (no learned rules) ---
+        print("\n  [Iteration 1/3] Baseline generation — no feedback yet")
+        agent_1  = ClinicalAgentLoop(feedback_memory=[], cli_api_key=cli_key)
+        payload_1 = agent_1.run(patient_id=patient_name, raw_clinical_text=raw_text)
+        draft_1   = payload_1.final_draft
+        edited_1  = doctor.apply_hidden_doctor_policy(draft_1)
+
         str_d1 = f"{draft_1.principal_diagnosis} | {draft_1.follow_up_instructions}"
         str_e1 = f"{edited_1.principal_diagnosis} | {edited_1.follow_up_instructions}"
         learning_engine.register_iteration_performance(patient_name, str_d1, str_e1)
-        
-        # Extract compliance adjustments into structured correction memory
-        new_rules = learning_engine.extract_feedback_rules(draft_1, edited_1)
-        print(f"Rules currently in correction memory: {learning_engine.correction_memory}")
-        
-        # Iteration 2: Learning Applied (Feedback Injected)
-        print("\n--- [Optimization Run 2: Feedback-Injected Generation] ---")
-        agent_run_2 = ClinicalAgentLoop(feedback_memory=learning_engine.correction_memory, cli_api_key=cli_key)
-        payload_2 = agent_run_2.run(patient_id=patient_name, raw_clinical_text=raw_text)
-        draft_2 = payload_2.final_draft
-        
-        # Clinician Review (2nd Round)
-        edited_2 = doctor.apply_hidden_doctor_policy(draft_2)
-        
-        # Calculate Edit Distance
+        learning_engine.extract_feedback_rules(draft_1, edited_1)
+        print(f"  Correction rules in memory: {len(learning_engine.correction_memory)}")
+
+        # --- Iteration 2: Feedback-injected ---
+        print("\n  [Iteration 2/3] Feedback-injected — applying learned rules")
+        agent_2   = ClinicalAgentLoop(feedback_memory=learning_engine.correction_memory, cli_api_key=cli_key)
+        payload_2 = agent_2.run(patient_id=patient_name, raw_clinical_text=raw_text)
+        draft_2   = payload_2.final_draft
+        edited_2  = doctor.apply_hidden_doctor_policy(draft_2)
+
         str_d2 = f"{draft_2.principal_diagnosis} | {draft_2.follow_up_instructions}"
         str_e2 = f"{edited_2.principal_diagnosis} | {edited_2.follow_up_instructions}"
         learning_engine.register_iteration_performance(patient_name, str_d2, str_e2)
-        
-        # Iteration 3: Full Alignment Run
-        print("\n--- [Optimization Run 3: Fully Aligned State] ---")
-        agent_run_3 = ClinicalAgentLoop(feedback_memory=learning_engine.correction_memory, cli_api_key=cli_key)
-        payload_3 = agent_run_3.run(patient_id=patient_name, raw_clinical_text=raw_text)
-        draft_3 = payload_3.final_draft
-        
-        # Clinician Review (3rd Round)
-        edited_3 = doctor.apply_hidden_doctor_policy(draft_3)
-        
-        # Calculate Edit Distance
+        learning_engine.extract_feedback_rules(draft_2, edited_2)
+
+        # --- Iteration 3: Final aligned run ---
+        print("\n  [Iteration 3/3] Final alignment run")
+        agent_3   = ClinicalAgentLoop(feedback_memory=learning_engine.correction_memory, cli_api_key=cli_key)
+        payload_3 = agent_3.run(patient_id=patient_name, raw_clinical_text=raw_text)
+        draft_3   = payload_3.final_draft
+        edited_3  = doctor.apply_hidden_doctor_policy(draft_3)
+
         str_d3 = f"{draft_3.principal_diagnosis} | {draft_3.follow_up_instructions}"
         str_e3 = f"{edited_3.principal_diagnosis} | {edited_3.follow_up_instructions}"
         learning_engine.register_iteration_performance(patient_name, str_d3, str_e3)
-        
-        # Save structured outputs for this patient
-        patient_slug = patient_name.replace(" ", "_")
-        
-        # Save final draft
-        draft_out_path = f"output/drafts/{patient_slug}_draft.json"
-        with open(draft_out_path, "w") as f:
-            json.dump(payload_3.final_draft.model_dump(), f, indent=4)
-        print(f"[Exporter] Saved final discharge draft to: {draft_out_path}")
-        
-        # Save execution trace
-        trace_out_path = f"output/traces/{patient_slug}_trace.json"
-        # Convert traces list of objects to list of dicts
-        traces_dict = [trace.model_dump() for trace in payload_3.execution_trace]
-        with open(trace_out_path, "w") as f:
-            json.dump(traces_dict, f, indent=4)
-        print(f"[Exporter] Saved step execution trace to: {trace_out_path}")
 
-    # 4. Generate and save learning curve plot
-    plot_output_path = "output/plots/learning_curve.png"
-    learning_engine.generate_and_save_learning_curve(plot_output_path)
-    
-    print("\n======================================================================")
-    print("      EXECUTION COMPLETED SUCCESSFULLY - ALL ARTIFACTS GENERATED     ")
-    print("======================================================================")
+        # --- Save outputs ---
+        slug = patient_name.replace(" ", "_")
+
+        draft_path = f"output/drafts/{slug}_draft.json"
+        with open(draft_path, "w") as f:
+            json.dump(payload_3.final_draft.model_dump(), f, indent=4)
+        print(f"\n  [Saved] Discharge draft  → {draft_path}")
+
+        trace_path = f"output/traces/{slug}_trace.json"
+        with open(trace_path, "w") as f:
+            json.dump([t.model_dump() for t in payload_3.execution_trace], f, indent=4)
+        print(f"  [Saved] Execution trace  → {trace_path}")
+
+    # ── Step 4: Generate learning curve plot ──────────────────────────
+    print("\n[3/4] Generating learning curve chart...")
+    plot_path = "output/plots/learning_curve.png"
+    learning_engine.generate_and_save_learning_curve(plot_path)
+
+    print("\n[4/4] All done.")
+    print("=" * 70)
+    print("  Discharge drafts : output/drafts/")
+    print("  Execution traces : output/traces/")
+    print("  Learning curve   : output/plots/learning_curve.png")
+    print("=" * 70)
+    print("\n  Tip: Run the web server to view results interactively:")
+    print("       python -m uvicorn server:app --host 0.0.0.0 --port 8000 --reload")
+    print()
+
 
 if __name__ == "__main__":
     main()

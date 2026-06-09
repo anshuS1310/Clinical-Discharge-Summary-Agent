@@ -1,102 +1,122 @@
 {
     "patient_name": "Prema J",
-    "medical_record_number": "SSS32561",
-    "age_and_gender": "30 Years / Female",
-    "admission_date": "24/02/2026 12:38 PM",
-    "discharge_date": "26/02/2026 02:00 PM",
+    "medical_record_number": "missing",
+    "age_and_gender": "missing",
+    "admission_date": "missing",
+    "discharge_date": "missing",
     "principal_diagnosis": "ACUTE GASTROENTERITIS WITH DEHYDRATION [Clinically Verified via Discharge Evaluation Policy]",
     "secondary_diagnoses": [
         "URINARY TRACT INFECTION",
-        "Thyroid disorder (on treatment)"
+        "Acute gastroenteritis",
+        "Thyroid disorder"
     ],
-    "hospital_course": "Patient presented with multiple episodes of loose stools, vomiting, fatigue, and fever. Initial investigations showed elevated creatinine (1.65 mg/dL) and hyponatremia (sodium 128.00 mmol/L). Treated with IV fluids, antibiotics, PPIs, and antiemetics. USG abdomen and pelvis showed Grade-I fatty liver and mild ascending colon edema. Creatinine corrected to 1.17 mg/dL on repeat check. Electrolytes stabilized. Discharged at request due to attender unwillingness to stay back.",
+    "hospital_course": "Patient presented to Us with above mentioned complaints. After evaluation, she was admitted to Ward, Initial investigations showed normal CBC, Serum creatinine (1.65 mg/dL) done was elevated. Serum electrolytes done showed low serum sodium( 128.00 mmol/L) Urine routine done showed ketone bodies(+). 10- 12/hpf of pus cells, 15-20(hpf of epithelial cells with presence of bacteria hence urine culture and sensitivity sent- report awaited. She was treated with IV fluids, IV antibiotics IV PPIs IV antiemetics and Other supportive measures USG abdomen and pelvis done showed Grade-[ fatty liver changes and mildly edematous part of ascending colon upto the hepatic flexure- could represent colitis. Repeat Serum Creatininet [. [Tmgldl) done was normal. TSH and Free T4 done were normal. Stool routine done showed 2-3/hpf of red blood cells. plenty/hpf of pus cells Patient was advised to stay back for further management bul #attenders not willing Lo the same: hence being discharged aL request with following advice",
     "procedures_performed": [
-        "USG Abdomen and Pelvis"
+        "USG abdomen/pelvis"
     ],
     "discharge_medications": [
         {
-            "name": "TAB. RACIPER",
-            "dosage": "40MG",
+            "name": "TAB. RACIPER (BEFORE FOOD)",
+            "dosage": "4MG",
             "frequency": "1-0-0",
             "status": "ADDED",
-            "reconciliation_note": "Added for gastric protection (PPI)."
+            "reconciliation_note": "Extracted from discharge medication text; verify against source PDF."
         },
         {
             "name": "TAB. EMESET",
             "dosage": "4MG",
             "frequency": "1-1-1",
             "status": "ADDED",
-            "reconciliation_note": "Added for antiemetic control."
+            "reconciliation_note": "Extracted from discharge medication text; verify against source PDF."
         },
         {
             "name": "TAB. OFLOX TZ",
             "dosage": "undocumented",
             "frequency": "1-0-1",
             "status": "ADDED",
-            "reconciliation_note": "Added for Urinary Tract Infection (antibiotic)."
+            "reconciliation_note": "Extracted from discharge medication text; verify against source PDF."
         },
         {
             "name": "TAB M STRONG",
             "dosage": "undocumented",
             "frequency": "1-0-0",
             "status": "ADDED",
-            "reconciliation_note": "Nutritional multivitamin supplement."
+            "reconciliation_note": "Extracted from discharge medication text; verify against source PDF."
         },
         {
-            "name": "TAB. ZEDOTT",
+            "name": "TAB ZEDOTT",
             "dosage": "undocumented",
             "frequency": "1-1-1",
             "status": "ADDED",
-            "reconciliation_note": "Added for anti-diarrheal support."
+            "reconciliation_note": "Extracted from discharge medication text; verify against source PDF."
         },
         {
-            "name": "TAB. ENTROFLORA",
+            "name": "TAB ENTROFLORA",
             "dosage": "undocumented",
             "frequency": "1-0-1",
             "status": "ADDED",
-            "reconciliation_note": "Probiotic supplement."
+            "reconciliation_note": "Extracted from discharge medication text; verify against source PDF."
         },
         {
             "name": "TAB. MEFTAL SPAS",
             "dosage": "undocumented",
-            "frequency": "1 TAB SOS",
+            "frequency": "undocumented",
             "status": "ADDED",
-            "reconciliation_note": "Antispasmodic for abdominal pain (As needed)."
+            "reconciliation_note": "Extracted from discharge medication text; verify against source PDF."
         },
         {
             "name": "TAB. LOPIRAMIDE",
             "dosage": "2MG",
             "frequency": "1-0-1",
             "status": "ADDED",
-            "reconciliation_note": "Anti-motility agent for severe loose stools."
+            "reconciliation_note": "Extracted from discharge medication text; verify against source PDF."
         }
     ],
     "allergies": [
-        "Not known"
+        "missing"
     ],
-    "follow_up_instructions": "CRITICAL CLINICAL FOLLOW-UP: Please visit the clinic as scheduled. Urine culture and sensitivity sent- report awaited. Review immediately in case of fever, loose stools, vomiting, fatigue. Review on 09.03.2026 with CBC.",
+    "follow_up_instructions": "CRITICAL CLINICAL FOLLOW-UP: Please visit the clinic as scheduled. Urine culture and sensitivity sent- report awaited Review immediately in case of fever, loose stools, vomiting; fatigue: Review on 09.03.2026, CBC",
     "pending_results": [
-        "Urine culture and sensitivity report awaited"
+        "urine culture and sensitivity sent- report awaited",
+        "Urine culture and sensitivity sent- report awaited"
     ],
-    "discharge_condition": "Hemodynamically stable (Discharged at Request)",
+    "discharge_condition": "Hemodynamically stable",
     "clinical_safety_flags": [
         {
-            "category": "MEDICATION_MISMATCH",
-            "item_involved": "Thyroid Medication",
-            "description": "Patient is on outpatient thyroid treatment, but no thyroid medication is prescribed at discharge or documented as discontinued.",
-            "action_taken": "Flagged for clinician reconciliation. Marked omission in medication summary."
+            "category": "MISSING_DATA",
+            "item_involved": "LLM Review",
+            "description": "This new patient was processed without a live LLM. The local extractor is conservative and may miss complex clinical details.",
+            "action_taken": "Flagged for clinician review."
         },
         {
-            "category": "PENDING_RESULT_WARNING",
-            "item_involved": "Urine Culture and Sensitivity Panel",
-            "description": "Urine culture and sensitivity report is outstanding at time of discharge.",
-            "action_taken": "Marked as pending in final draft. Added strict outpatient tracking instructions."
+            "category": "MISSING_DATA",
+            "item_involved": "medical_record_number",
+            "description": "OCR did not provide a reliable MRN/Pt ID; rejected candidate: missing.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
         },
         {
-            "category": "CONFLICTING_DIAGNOSES",
-            "item_involved": "Discharge at Request",
-            "description": "Patient was advised to stay back for further inpatient management but attenders were unwilling, leading to discharge at request.",
-            "action_taken": "Flagged status clearly. Added warnings regarding immediate outpatient review."
+            "category": "MISSING_DATA",
+            "item_involved": "age_and_gender",
+            "description": "OCR did not provide a reliable age and gender; rejected candidate: missing.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
+        },
+        {
+            "category": "MISSING_DATA",
+            "item_involved": "admission_date",
+            "description": "OCR did not provide a reliable admission date; rejected candidate: missing.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
+        },
+        {
+            "category": "MISSING_DATA",
+            "item_involved": "discharge_date",
+            "description": "OCR did not provide a reliable discharge date; rejected candidate: missing.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
+        },
+        {
+            "category": "MISSING_DATA",
+            "item_involved": "allergies",
+            "description": "OCR did not provide a reliable allergy value; rejected candidate: missing.",
+            "action_taken": "Marked missing/pending instead of fabricating a clinical fact from noisy OCR."
         }
     ]
 }
