@@ -28,7 +28,7 @@ graph TD
     D -- Yes --> E[Live ReAct Agent Loop]
     D -- No --> F[Local Transformer / Extractive Fallback]
     E --> G[Clinical Tool Calls]
-    F --> G
+    F --> E
     G --> H[Structured Discharge Draft]
     H --> I[Doctor Review Policy]
     I --> J[Edit Distance Measurement]
