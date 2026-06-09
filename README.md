@@ -1,5 +1,7 @@
 # ClinicalAI — Discharge Summary Agent
 
+**Live Demo** : clinical-discharge-summary-agent-production.up.railway.app
+
 An intelligent clinical AI system that reads patient records, audits medications, flags safety concerns, and generates structured discharge summaries — learning and improving from every clinician correction.
 
 ---
