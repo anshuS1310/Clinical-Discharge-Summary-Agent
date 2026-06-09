@@ -289,21 +289,12 @@ async def list_traces():
 @app.get("/api/learning-curve")
 async def get_learning_curve():
     """Return learning curve data for Chart.js rendering."""
-    # Try to get from latest pipeline runs
     all_data = {}
     for name, result in pipeline_results.items():
         all_data[name] = [it["edit_distance"] for it in result["iterations"]]
 
-    # Fallback: if no pipeline has been run, try to read from engine
     if not all_data and learning_engine.performance_history:
         all_data = dict(learning_engine.performance_history)
-
-    # Final fallback: if nothing exists, return mock data from the known results
-    if not all_data:
-        all_data = {
-            "Prema J": [0.3854, 0.0, 0.0],
-            "H D Nagaraja": [0.4116, 0.0, 0.0]
-        }
 
     return {"learning_data": all_data}
 

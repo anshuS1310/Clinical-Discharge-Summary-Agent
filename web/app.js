@@ -1,4 +1,4 @@
-// ClinicalAI — Discharge Summary Agent — Frontend Logic
+// ClinicalAI Discharge Summary Agent frontend logic
 
 // Dynamically resolve API base URL
 const API = window.location.protocol === 'file:'
@@ -12,12 +12,89 @@ const state = {
     pipelineResults:      {},   // patient_name -> full pipeline result
     savedDrafts:          [],   // from /api/drafts
     savedTraces:          [],   // from /api/traces
+    savedLearningData:    {},   // from /api/learning-curve
     currentSummaryPatient: null,
     currentTracePatient:   null,
     currentLearningPatient:null,
     currentSummaryTab:    'document',
     learningChart:        null,
 };
+
+async function loadSavedArtifactState() {
+    const [draftsRes, tracesRes, learningRes] = await Promise.allSettled([
+        apiGet('/api/drafts'),
+        apiGet('/api/traces'),
+        apiGet('/api/learning-curve'),
+    ]);
+
+    if (draftsRes.status === 'fulfilled') state.savedDrafts = draftsRes.value.drafts || [];
+    if (tracesRes.status === 'fulfilled') state.savedTraces = tracesRes.value.traces || [];
+    if (learningRes.status === 'fulfilled') state.savedLearningData = learningRes.value.learning_data || {};
+
+    updatePatientSelectors();
+    return {
+        drafts: state.savedDrafts,
+        traces: state.savedTraces,
+        learningData: state.savedLearningData,
+    };
+}
+
+const ICONS = {
+    home: '<svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10.5V20h14v-9.5"/><path d="M9.5 20v-5h5v5"/></svg>',
+    upload: '<svg viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1"/><path d="m16 7-4-4-4 4"/><path d="M12 3v13"/></svg>',
+    agent: '<svg viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="11" rx="3"/><path d="M12 7V4"/><path d="M8.5 12h.01M15.5 12h.01"/><path d="M9 16h6"/></svg>',
+    draft: '<svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg>',
+    chart: '<svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 3-4 3 2 4-7"/></svg>',
+    trace: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/><path d="M8.5 11h5M11 8.5v5"/></svg>',
+    key: '<svg viewBox="0 0 24 24"><circle cx="7.5" cy="14.5" r="4.5"/><path d="m11 11 9-9"/><path d="m15 6 3 3"/><path d="m17 4 3 3"/></svg>',
+    check: '<svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>',
+    alert: '<svg viewBox="0 0 24 24"><path d="M12 3 2 21h20z"/><path d="M12 9v5"/><path d="M12 17h.01"/></svg>',
+    meds: '<svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="8" rx="4"/><path d="m10 11 4 8"/><rect x="7" y="3" width="10" height="8" rx="4"/></svg>',
+    lab: '<svg viewBox="0 0 24 24"><path d="M9 3h6"/><path d="M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6A2 2 0 0 0 19 18l-5-9V3"/><path d="M7 15h10"/></svg>',
+    diagnostic: '<svg viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>',
+    flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4"/><path d="M5 4s2-1 5-1 5 2 9 1v10c-4 1-6-1-9-1s-5 1-5 1"/></svg>',
+    final: '<svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/><circle cx="12" cy="12" r="9"/></svg>',
+    patient: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>',
+};
+
+function icon(name, className = 'ui-icon') {
+    return `<span class="${className}" aria-hidden="true">${ICONS[name] || ICONS.draft}</span>`;
+}
+
+function decorateStaticUi() {
+    const tabIcons = {
+        dashboard: 'home',
+        upload: 'upload',
+        agent: 'agent',
+        summary: 'draft',
+        learning: 'chart',
+        trace: 'trace',
+    };
+
+    Object.entries(tabIcons).forEach(([tab, iconName]) => {
+        const btn = document.querySelector(`.nav-tab[data-tab="${tab}"]`);
+        if (btn && !btn.querySelector('.ui-icon')) {
+            btn.innerHTML = `${icon(iconName)}<span>${btn.textContent.trim()}</span>`;
+        }
+    });
+
+    const buttonIcons = {
+        'hero-upload-btn': 'upload',
+        'hero-drafts-btn': 'draft',
+        'api-save-btn': 'key',
+        'btn-doc-view': 'draft',
+        'btn-diff-view': 'trace',
+        'btn-print': 'final',
+        'btn-download': 'upload',
+    };
+
+    Object.entries(buttonIcons).forEach(([id, iconName]) => {
+        const btn = document.getElementById(id);
+        if (btn && !btn.querySelector('.ui-icon')) {
+            btn.innerHTML = `${icon(iconName)}<span>${btn.textContent.trim()}</span>`;
+        }
+    });
+}
 
 // Tab navigation
 function switchTab(tabId) {
@@ -60,8 +137,8 @@ function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
     const toast     = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    const icons = { success: '', error: '', info: '' };
-    toast.innerHTML = `<span>${icons[type] || ''}</span><span>${message}</span>`;
+    const icons = { success: icon('check', 'toast-icon'), error: icon('alert', 'toast-icon'), info: icon('agent', 'toast-icon') };
+    toast.innerHTML = `${icons[type] || icons.info}<span>${message}</span>`;
     container.appendChild(toast);
     setTimeout(() => {
         toast.classList.add('removing');
@@ -98,25 +175,21 @@ async function apiPost(url, body, isFormData = false) {
 // Dashboard
 async function refreshDashboard() {
     try {
-        const [draftsRes, tracesRes, learningRes] = await Promise.all([
-            apiGet('/api/drafts'),
-            apiGet('/api/traces'),
-            apiGet('/api/learning-curve'),
-        ]);
+        const { drafts, traces, learningData } = await loadSavedArtifactState();
 
-        const numPatients = draftsRes.drafts.length;
+        const numPatients = getCompleteArtifactPatients().length;
         let totalSteps = 0;
         let totalFlags = 0;
 
-        draftsRes.drafts.forEach(d => {
+        drafts.forEach(d => {
             totalFlags += (d.data.clinical_safety_flags || []).length;
         });
-        tracesRes.traces.forEach(t => {
+        traces.forEach(t => {
             totalSteps += (t.data || []).length;
         });
 
-        let bestScore = '';
-        const ld = learningRes.learning_data;
+        let bestScore = '--';
+        const ld = learningData;
         if (ld && Object.keys(ld).length > 0) {
             let minLast = Infinity;
             Object.values(ld).forEach(arr => {
@@ -205,9 +278,9 @@ async function handleFileUpload(file) {
 
 function resetUploadZone() {
     uploadZone.innerHTML = `
-        <div class="upload-zone-icon"></div>
+        <div class="upload-zone-icon">${icon('upload', 'upload-svg')}</div>
         <div class="upload-zone-text">Drag &amp; drop a clinical PDF here, or <strong style="color:var(--blue)">click to browse</strong></div>
-        <div class="upload-zone-hint" style="margin-top:8px;">Supports multi-patient PDF documents  PDF format only</div>
+        <div class="upload-zone-hint" style="margin-top:8px;">Supports multi-patient PDF documents &middot; PDF format only</div>
     `;
 }
 
@@ -224,16 +297,16 @@ function renderPatientCards() {
         card.style.animationDelay = `${idx * 0.12}s`;
         card.innerHTML = `
             <div class="patient-card-header">
-                <span class="patient-name"> ${escapeHtml(name)}</span>
+                <span class="patient-name">${icon('patient')} ${escapeHtml(name)}</span>
                 <span class="patient-badge">${(info.full_length / 1000).toFixed(1)}K chars</span>
             </div>
             <div class="patient-text-preview">${escapeHtml(info.preview)}</div>
             <div class="patient-actions">
                 <button class="btn btn-primary btn-sm" id="run-btn-${idx}" onclick="runFullPipeline('${escapeAttr(name)}', ${idx})">
-                     Run Full Pipeline
+                    ${icon('agent')} Run Full Pipeline
                 </button>
                 <button class="btn btn-outline btn-sm" onclick="switchTab('agent')">
-                     Monitor
+                    ${icon('trace')} Monitor
                 </button>
             </div>
         `;
@@ -331,44 +404,47 @@ function getToolClass(tool) {
 }
 
 function getToolIcon(tool) {
-    if (tool.includes('Medication'))                   return '';
-    if (tool.includes('Pending') || tool.includes('Results')) return '';
-    if (tool.includes('Diagnostic'))                   return '';
-    if (tool.includes('Flag') || tool.includes('Contradiction')) return '';
-    if (tool.includes('FINAL'))                        return '';
-    return '';
+    if (tool.includes('Medication')) return icon('meds', 'tool-icon');
+    if (tool.includes('Pending') || tool.includes('Results')) return icon('lab', 'tool-icon');
+    if (tool.includes('Diagnostic')) return icon('diagnostic', 'tool-icon');
+    if (tool.includes('Flag') || tool.includes('Contradiction')) return icon('flag', 'tool-icon');
+    if (tool.includes('FINAL')) return icon('final', 'tool-icon');
+    if (tool.includes('LOCAL') || tool.includes('EXTRACTION')) return icon('agent', 'tool-icon');
+    return icon('trace', 'tool-icon');
 }
 
 // Patient selectors
 function updatePatientSelectors() {
-    const pipelineNames = Object.keys(state.pipelineResults);
-
-    // For summary: pipeline results + saved drafts
-    const summaryNames = [...pipelineNames];
-    state.savedDrafts.forEach(d => {
-        const name = d.data.patient_name;
-        if (name && !summaryNames.includes(name)) summaryNames.push(name);
-    });
+    const completeNames = getCompleteArtifactPatients();
+    const summaryNames = [...completeNames];
 
     renderPatientSelector('summary-patient-selector', summaryNames, (name) => {
         state.currentSummaryPatient = name;
         renderSummaryForPatient(name);
     });
 
-    renderPatientSelector('learning-patient-selector', pipelineNames, (name) => {
+    const learningNames = [...completeNames];
+    renderPatientSelector('learning-patient-selector', learningNames, (name) => {
         state.currentLearningPatient = name;
         renderLearningForPatient(name);
     });
 
-    // For trace: pipeline results + saved traces
-    const traceNames = [...pipelineNames];
-    state.savedTraces.forEach(t => {
-        const name = t.filename.replace('_trace.json', '').replace(/_/g, ' ');
-        if (name && !traceNames.includes(name)) traceNames.push(name);
-    });
+    const traceNames = [...completeNames];
     renderPatientSelector('trace-patient-selector', traceNames, (name) => {
         state.currentTracePatient = name;
         renderTraceForPatient(name);
+    });
+}
+
+function getCompleteArtifactPatients() {
+    const draftNames = new Set(state.savedDrafts.map(d => d.data && d.data.patient_name).filter(Boolean));
+    const traceNames = new Set(state.savedTraces.map(t => t.filename.replace('_trace.json', '').replace(/_/g, ' ')));
+    const learningNames = new Set(Object.keys(state.savedLearningData || {}));
+    const pipelineNames = new Set(Object.keys(state.pipelineResults));
+    const all = new Set([...draftNames, ...traceNames, ...learningNames, ...pipelineNames]);
+    return [...all].filter(name => {
+        if (pipelineNames.has(name)) return true;
+        return draftNames.has(name) && traceNames.has(name) && learningNames.has(name);
     });
 }
 
@@ -378,7 +454,7 @@ function renderPatientSelector(containerId, names, onClick) {
     names.forEach(name => {
         const btn = document.createElement('button');
         btn.className  = 'patient-select-btn';
-        btn.textContent = ` ${name}`;
+        btn.innerHTML = `${icon('patient')}<span>${escapeHtml(name)}</span>`;
         btn.onclick = () => {
             container.querySelectorAll('.patient-select-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
@@ -391,18 +467,22 @@ function renderPatientSelector(containerId, names, onClick) {
 // Discharge summary viewer
 async function loadSavedDrafts() {
     try {
-        const res = await apiGet('/api/drafts');
-        state.savedDrafts = res.drafts;
-        updatePatientSelectors();
+        await loadSavedArtifactState();
+        const completeNames = getCompleteArtifactPatients();
+        if (state.currentSummaryPatient && !completeNames.includes(state.currentSummaryPatient)) {
+            state.currentSummaryPatient = null;
+        }
 
-        if (!state.currentSummaryPatient && res.drafts.length > 0) {
-            const firstName = res.drafts[0].data.patient_name;
+        if (!state.currentSummaryPatient && completeNames.length > 0) {
+            const firstName = completeNames[0];
             state.currentSummaryPatient = firstName;
             renderSummaryForPatient(firstName);
             highlightPatientBtn('summary-patient-selector', firstName);
         } else if (state.currentSummaryPatient) {
             renderSummaryForPatient(state.currentSummaryPatient);
             highlightPatientBtn('summary-patient-selector', state.currentSummaryPatient);
+        } else {
+            renderSummaryForPatient(null);
         }
     } catch (e) {
         console.warn('Failed to load drafts:', e);
@@ -625,19 +705,19 @@ function renderDischargeSummary(draft) {
 
 function getConditionClass(condition) {
     const c = (condition || '').toLowerCase();
-    if (c.includes('stable'))   return { bg: '#D1FAE5', color: '#059669', icon: '' };
-    if (c.includes('critical')) return { bg: '#FEE2E2', color: '#DC2626', icon: '' };
-    if (c.includes('guarded'))  return { bg: '#FEF3C7', color: '#D97706', icon: '' };
-    if (c.includes('fair'))     return { bg: '#E0F2FE', color: '#0284C7', icon: '' };
-    return { bg: '#EDE9FE', color: '#7C3AED', icon: '' };
+    if (c.includes('stable'))   return { bg: '#D1FAE5', color: '#059669', icon: icon('check') };
+    if (c.includes('critical')) return { bg: '#FEE2E2', color: '#DC2626', icon: icon('alert') };
+    if (c.includes('guarded'))  return { bg: '#FEF3C7', color: '#D97706', icon: icon('flag') };
+    if (c.includes('fair'))     return { bg: '#E0F2FE', color: '#0284C7', icon: icon('diagnostic') };
+    return { bg: '#EDE9FE', color: '#7C3AED', icon: icon('patient') };
 }
 
 function formatFlagCategory(cat) {
     const map = {
-        'MISSING_DATA':          ' Missing Data',
-        'MEDICATION_MISMATCH':   ' Medication Mismatch',
-        'CONFLICTING_DIAGNOSES': ' Conflicting Diagnoses',
-        'PENDING_RESULT_WARNING':' Pending Result Warning',
+        'MISSING_DATA':          `${icon('alert')} Missing Data`,
+        'MEDICATION_MISMATCH':   `${icon('meds')} Medication Mismatch`,
+        'CONFLICTING_DIAGNOSES': `${icon('diagnostic')} Conflicting Diagnoses`,
+        'PENDING_RESULT_WARNING':`${icon('lab')} Pending Result Warning`,
     };
     return map[cat] || cat;
 }
@@ -716,31 +796,40 @@ function findAddedText(original, edited) {
 
 // Learning panel
 async function loadLearningData() {
-    updatePatientSelectors();
+    try {
+        await loadSavedArtifactState();
+    } catch (e) {
+        state.savedLearningData = {};
+        updatePatientSelectors();
+    }
+
+    const completeNames = getCompleteArtifactPatients();
+    if (state.currentLearningPatient && !completeNames.includes(state.currentLearningPatient)) {
+        state.currentLearningPatient = null;
+    }
 
     if (state.currentLearningPatient) {
         renderLearningForPatient(state.currentLearningPatient);
         highlightPatientBtn('learning-patient-selector', state.currentLearningPatient);
-    } else if (Object.keys(state.pipelineResults).length > 0) {
-        const first = Object.keys(state.pipelineResults)[0];
+    } else {
+        if (completeNames.length === 0) {
+            showLearningEmpty('Run the full pipeline to generate the draft, trace, and learning curve together.');
+            return;
+        }
+        const first = completeNames[0];
         state.currentLearningPatient = first;
         renderLearningForPatient(first);
         highlightPatientBtn('learning-patient-selector', first);
-    } else {
-        try {
-            const res = await apiGet('/api/learning-curve');
-            if (res.learning_data && Object.keys(res.learning_data).length > 0) {
-                renderLearningChartFromData(res.learning_data);
-                document.getElementById('learning-empty').style.display   = 'none';
-                document.getElementById('learning-content').style.display = 'block';
-            }
-        } catch (e) { /* keep empty state */ }
+        return;
     }
 }
 
 function renderLearningForPatient(patientName) {
     const result = state.pipelineResults[patientName];
-    if (!result) return;
+    if (!result) {
+        renderSavedLearningOverview(patientName);
+        return;
+    }
 
     document.getElementById('learning-empty').style.display   = 'none';
     document.getElementById('learning-content').style.display = 'block';
@@ -792,16 +881,75 @@ function renderLearningForPatient(patientName) {
     }
 }
 
+function renderSavedLearningOverview(patientName = null) {
+    const data = state.savedLearningData || {};
+    const entries = Object.entries(data).filter(([, distances]) => Array.isArray(distances) && distances.length > 0);
+    if (!entries.length) {
+        showLearningEmpty('Run the full pipeline to generate the draft, trace, and learning curve together.');
+        return;
+    }
+
+    document.getElementById('learning-empty').style.display = 'none';
+    document.getElementById('learning-content').style.display = 'block';
+    document.getElementById('perfect-alignment').style.display = 'none';
+
+    const selected = patientName && data[patientName] ? [[patientName, data[patientName]]] : entries;
+    const grid = document.getElementById('iterations-grid');
+    grid.innerHTML = '';
+    selected.forEach(([name, distances], idx) => {
+        const finalScore = distances[distances.length - 1];
+        const card = document.createElement('div');
+        card.className = 'card iteration-card animate-in';
+        card.style.animationDelay = `${idx * 0.08}s`;
+        card.innerHTML = `
+            <div class="iteration-number">${escapeHtml(name)}</div>
+            <div class="iteration-label">${distances.length} optimization run${distances.length === 1 ? '' : 's'}</div>
+            <div class="iteration-score ${finalScore === 0 ? 'score-zero' : 'score-high'}">${finalScore.toFixed(4)}</div>
+            <div class="iteration-status" style="color:${finalScore === 0 ? 'var(--teal)' : 'var(--text-muted)'}">
+                ${finalScore === 0 ? 'Ready for review' : 'Review suggested'}
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+
+    renderLearningChartFromData(data);
+    document.getElementById('rules-list').innerHTML = `
+        <div class="empty-state mini-empty">
+            <div class="empty-state-text">Saved learning curve loaded</div>
+            <div class="empty-state-hint">Run a fresh pipeline in this browser session to view extracted correction rules.</div>
+        </div>
+    `;
+}
+
+function showLearningEmpty(message) {
+    document.getElementById('learning-empty').style.display = 'flex';
+    document.getElementById('learning-content').style.display = 'none';
+    const hint = document.getElementById('learning-empty').querySelector('.empty-state-hint');
+    if (hint) hint.textContent = message;
+}
+
 function renderLearningChartFromData(data) {
     const ctx = document.getElementById('learning-chart');
     if (!ctx) return;
     if (state.learningChart) state.learningChart.destroy();
+    const validEntries = Object.entries(data || {}).filter(([, distances]) => Array.isArray(distances) && distances.length > 0);
+    if (!validEntries.length) {
+        renderFallbackLearningChart({});
+        return;
+    }
+    if (typeof Chart === 'undefined') {
+        renderFallbackLearningChart(Object.fromEntries(validEntries));
+        return;
+    }
+    ctx.style.display = 'block';
+    const fallback = document.getElementById('learning-chart-fallback');
+    if (fallback) fallback.remove();
 
     const datasets = [];
     const colors   = ['#1A6FBA', '#0D9488', '#D97706', '#DC2626', '#7C3AED'];
     let maxLen = 0;
 
-    Object.entries(data).forEach(([name, distances], idx) => {
+    validEntries.forEach(([name, distances], idx) => {
         if (distances.length > maxLen) maxLen = distances.length;
         datasets.push({
             label: `Patient: ${name}`,
@@ -859,21 +1007,71 @@ function renderLearningChartFromData(data) {
     });
 }
 
+function renderFallbackLearningChart(data) {
+    const canvas = document.getElementById('learning-chart');
+    if (!canvas) return;
+    const container = canvas.parentElement;
+    canvas.style.display = 'none';
+    let fallback = document.getElementById('learning-chart-fallback');
+    if (!fallback) {
+        fallback = document.createElement('div');
+        fallback.id = 'learning-chart-fallback';
+        fallback.className = 'fallback-chart';
+        container.appendChild(fallback);
+    }
+
+    const entries = Object.entries(data || {}).filter(([, values]) => Array.isArray(values) && values.length);
+    if (!entries.length) {
+        fallback.innerHTML = '<div class="empty-state mini-empty"><div class="empty-state-text">No learning curve yet</div><div class="empty-state-hint">Run the full pipeline to generate all outputs together.</div></div>';
+        return;
+    }
+
+    const colors = ['#1A6FBA', '#0D9488', '#D97706', '#DC2626', '#7C3AED'];
+    const width = 760;
+    const height = 260;
+    const pad = 36;
+    const maxLen = Math.max(...entries.map(([, values]) => values.length), 1);
+    const xFor = i => pad + (maxLen === 1 ? 0 : (i / (maxLen - 1)) * (width - pad * 2));
+    const yFor = value => pad + (1 - Math.max(0, Math.min(1, value))) * (height - pad * 2);
+
+    const series = entries.map(([name, values], idx) => {
+        const color = colors[idx % colors.length];
+        const points = values.map((v, i) => `${xFor(i)},${yFor(v)}`).join(' ');
+        const dots = values.map((v, i) => `<circle cx="${xFor(i)}" cy="${yFor(v)}" r="5" fill="${color}" stroke="#fff" stroke-width="2"><title>${name}: ${v.toFixed(4)}</title></circle>`).join('');
+        return `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${dots}`;
+    }).join('');
+
+    const legend = entries.map(([name], idx) => `<span><i style="background:${colors[idx % colors.length]}"></i>${escapeHtml(name)}</span>`).join('');
+    fallback.innerHTML = `
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Learning curve">
+            <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" stroke="#DDE8F5" stroke-width="2"/>
+            <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" stroke="#DDE8F5" stroke-width="2"/>
+            <line x1="${pad}" y1="${yFor(0.5)}" x2="${width - pad}" y2="${yFor(0.5)}" stroke="#E8F2FD" stroke-width="1"/>
+            ${series}
+        </svg>
+        <div class="fallback-chart-legend">${legend}</div>
+    `;
+}
+
 // Trace explorer
 async function loadSavedTraces() {
     try {
-        const res = await apiGet('/api/traces');
-        state.savedTraces = res.traces;
-        updatePatientSelectors();
+        await loadSavedArtifactState();
+        const completeNames = getCompleteArtifactPatients();
+        if (state.currentTracePatient && !completeNames.includes(state.currentTracePatient)) {
+            state.currentTracePatient = null;
+        }
 
-        if (!state.currentTracePatient && res.traces.length > 0) {
-            const firstName = res.traces[0].filename.replace('_trace.json', '').replace(/_/g, ' ');
+        if (!state.currentTracePatient && completeNames.length > 0) {
+            const firstName = completeNames[0];
             state.currentTracePatient = firstName;
             renderTraceFromSaved(firstName);
             highlightPatientBtn('trace-patient-selector', firstName);
         } else if (state.currentTracePatient) {
             renderTraceForPatient(state.currentTracePatient);
             highlightPatientBtn('trace-patient-selector', state.currentTracePatient);
+        } else {
+            renderTraceAccordion([]);
         }
     } catch (e) {
         console.warn('Failed to load traces:', e);
@@ -1020,7 +1218,7 @@ async function saveApiKey() {
     }
 
     btn.disabled  = true;
-    btn.innerHTML = '<div class="spinner"></div> Saving...';
+        btn.innerHTML = '<div class="spinner"></div><span>Saving...</span>';
 
     try {
         await apiPost('/api/set-api-key', { api_key: key });
@@ -1036,7 +1234,7 @@ async function saveApiKey() {
         showToast(`Failed to save key: ${e.message}`, 'error');
     } finally {
         btn.disabled  = false;
-        btn.innerHTML = ' Save & Apply';
+        btn.innerHTML = `${icon('key')}<span>Save &amp; Apply</span>`;
     }
 }
 
@@ -1075,32 +1273,33 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.key === 'Enter') saveApiKey();
         });
     }
+    decorateStaticUi();
 });
 
 // Processing status panel
 
 // Full pipeline step descriptions  shown progressively while the request runs
 const PIPELINE_STEPS = [
-    { icon: '', msg: 'Parsing clinical text and structuring patient data from the PDF...' },
-    { icon: '', msg: 'Initialising the ReAct agent  loading clinical reasoning modules...' },
-    { icon: '', msg: 'Agent is observing the patient record and planning its first action...' },
-    { icon: '', msg: 'Running Medication Reconciliation  cross-checking admission vs discharge meds...' },
-    { icon: '', msg: 'Comparing prescribed dosages against documented clinical indications...' },
-    { icon: '', msg: 'Checking for pending lab results, cultures, and unresolved diagnostic flags...' },
-    { icon: '', msg: 'Running Diagnostic Consistency Check  validating diagnoses against findings...' },
-    { icon: '', msg: 'Scanning for clinical safety contradictions and flagging anomalies...' },
-    { icon: '', msg: 'Agent is composing the first-pass discharge summary draft (Iteration 1/3)...' },
-    { icon: '', msg: 'Applying simulated doctor review policy  the agent is self-correcting...' },
-    { icon: '', msg: 'Measuring edit distance between AI draft and reviewed version...' },
-    { icon: '', msg: 'Extracting correction rules from clinician edits to improve next iteration...' },
-    { icon: '', msg: 'Injecting learned feedback rules  starting Iteration 2/3...' },
-    { icon: '', msg: 'Re-running medication reconciliation with improved context...' },
-    { icon: '', msg: 'Refining discharge summary with feedback-corrected reasoning (Iteration 2/3)...' },
-    { icon: '', msg: 'Doctor review policy applied again  measuring improvement in alignment...' },
-    { icon: '', msg: 'Starting final alignment run  Iteration 3/3...' },
-    { icon: '', msg: 'Agent generating final, fully-aligned discharge summary...' },
-    { icon: '', msg: 'Finalising structured output  saving draft, trace, and learning data...' },
-    { icon: '', msg: 'Pipeline complete! Your discharge summary is ready to review.' },
+    { icon: icon('upload', 'step-icon'), msg: 'Parsing clinical text and structuring patient data from the PDF...' },
+    { icon: icon('agent', 'step-icon'), msg: 'Initialising the ReAct agent and loading clinical reasoning modules...' },
+    { icon: icon('trace', 'step-icon'), msg: 'Agent is observing the patient record and planning its first action...' },
+    { icon: icon('meds', 'step-icon'), msg: 'Running medication reconciliation and cross-checking admission vs discharge meds...' },
+    { icon: icon('meds', 'step-icon'), msg: 'Comparing prescribed dosages against documented clinical indications...' },
+    { icon: icon('lab', 'step-icon'), msg: 'Checking for pending lab results, cultures, and unresolved diagnostic flags...' },
+    { icon: icon('diagnostic', 'step-icon'), msg: 'Running diagnostic consistency checks against documented findings...' },
+    { icon: icon('flag', 'step-icon'), msg: 'Scanning for clinical safety contradictions and flagging anomalies...' },
+    { icon: icon('draft', 'step-icon'), msg: 'Agent is composing the first-pass discharge summary draft (Iteration 1/3)...' },
+    { icon: icon('agent', 'step-icon'), msg: 'Applying simulated doctor review policy so the agent can self-correct...' },
+    { icon: icon('chart', 'step-icon'), msg: 'Measuring edit distance between AI draft and reviewed version...' },
+    { icon: icon('trace', 'step-icon'), msg: 'Extracting correction rules from clinician edits to improve the next iteration...' },
+    { icon: icon('chart', 'step-icon'), msg: 'Injecting learned feedback rules and starting Iteration 2/3...' },
+    { icon: icon('meds', 'step-icon'), msg: 'Re-running medication reconciliation with improved context...' },
+    { icon: icon('draft', 'step-icon'), msg: 'Refining discharge summary with feedback-corrected reasoning (Iteration 2/3)...' },
+    { icon: icon('chart', 'step-icon'), msg: 'Doctor review policy applied again and measuring improvement in alignment...' },
+    { icon: icon('final', 'step-icon'), msg: 'Starting final alignment run, Iteration 3/3...' },
+    { icon: icon('draft', 'step-icon'), msg: 'Agent generating final, fully-aligned discharge summary...' },
+    { icon: icon('final', 'step-icon'), msg: 'Finalising structured output and saving draft, trace, and learning data...' },
+    { icon: icon('check', 'step-icon'), msg: 'Pipeline complete! Your discharge summary is ready to review.' },
 ];
 
 let _processingIntervalId  = null;
@@ -1195,13 +1394,13 @@ function addCompletedStep(icon, msg) {
     log.scrollTop = log.scrollHeight;
 }
 
-// Full pipeline — shows processing panel on upload tab, then animates agent monitor on completion
+// Full pipeline shows the processing panel on upload, then animates the agent monitor on completion
 
 async function runFullPipeline(patientName, btnIdx) {
     const btn = document.getElementById(`run-btn-${btnIdx}`);
     if (btn) {
         btn.disabled  = true;
-        btn.innerHTML = '<div class="spinner"></div> Processing...';
+        btn.innerHTML = '<div class="spinner"></div><span>Processing...</span>';
     }
 
     showToast(`Starting 3-iteration pipeline for ${patientName}...`, 'info');
@@ -1246,7 +1445,7 @@ async function runFullPipeline(patientName, btnIdx) {
     } finally {
         if (btn) {
             btn.disabled  = false;
-            btn.innerHTML = ' Run Full Pipeline';
+            btn.innerHTML = `${icon('agent')}<span>Run Full Pipeline</span>`;
         }
     }
 }
