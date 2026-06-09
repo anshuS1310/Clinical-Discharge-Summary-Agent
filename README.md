@@ -1,4 +1,4 @@
-# ClinicalAI  Discharge Summary Agent
+# ClinicalAI — Discharge Summary Agent
 
 An intelligent clinical AI system that reads patient records, audits medications, flags safety concerns, and generates structured discharge summaries  learning and improving from every clinician correction.
 
