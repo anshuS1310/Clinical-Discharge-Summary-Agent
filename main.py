@@ -1,7 +1,3 @@
-# main.py  CLI orchestrator for the Clinical Discharge Summary Agent
-# Use this to run the full pipeline without the web server.
-# For the web interface, run: python -m uvicorn server:app --port 8000 --reload
-
 import os
 import sys
 import json

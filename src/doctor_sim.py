@@ -1,4 +1,3 @@
-# src/doctor_sim.py
 # Simulates a clinician reviewing and editing the AI-generated discharge draft.
 # The "hidden policy" here mimics the kind of consistent formatting preference
 # a real doctor might apply  a verification suffix on diagnoses and a

@@ -124,7 +124,8 @@ async def upload_pdf(file: UploadFile = File(...)):
             f.write(content)
 
         parser = ClinicalTextParser()
-        patient_records = parser.parse_patient_pdf(temp_path)
+        from starlette.concurrency import run_in_threadpool
+        patient_records = await run_in_threadpool(parser.parse_patient_pdf, temp_path)
         extracted_patients = patient_records
 
         # Build response with preview
@@ -148,7 +149,8 @@ async def run_agent(req: RunAgentRequest):
     """Run the ReAct agent loop for a single patient."""
     try:
         agent = ClinicalAgentLoop(feedback_memory=req.feedback_memory)
-        payload = agent.run(patient_id=req.patient_name, raw_clinical_text=req.raw_text)
+        from starlette.concurrency import run_in_threadpool
+        payload = await run_in_threadpool(agent.run, req.patient_name, req.raw_text)
         return payload.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
@@ -158,8 +160,9 @@ async def run_agent(req: RunAgentRequest):
 async def run_doctor_review(req: RunDoctorRequest):
     """Apply the simulated doctor review policy to a draft."""
     try:
+        from starlette.concurrency import run_in_threadpool
         draft = DischargeSummaryDraft.model_validate(req.draft)
-        edited = doctor.apply_hidden_doctor_policy(draft)
+        edited = await run_in_threadpool(doctor.apply_hidden_doctor_policy, draft)
         return edited.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Doctor review failed: {str(e)}")
@@ -169,25 +172,30 @@ async def run_doctor_review(req: RunDoctorRequest):
 async def run_learning(req: RunLearningRequest):
     """Register iteration performance and extract feedback rules."""
     try:
-        draft_text = f"{req.draft_diagnosis} | {req.draft_followup}"
-        edited_text = f"{req.edited_diagnosis} | {req.edited_followup}"
+        def execute_learning_sync():
+            draft_text = f"{req.draft_diagnosis} | {req.draft_followup}"
+            edited_text = f"{req.edited_diagnosis} | {req.edited_followup}"
 
-        learning_engine.register_iteration_performance(req.patient_name, draft_text, edited_text)
+            learning_engine.register_iteration_performance(req.patient_name, draft_text, edited_text)
 
-        draft_obj = DischargeSummaryDraft.model_validate(req.draft)
-        edited_obj = DischargeSummaryDraft.model_validate(req.edited)
-        new_rules = learning_engine.extract_feedback_rules(draft_obj, edited_obj)
+            draft_obj = DischargeSummaryDraft.model_validate(req.draft)
+            edited_obj = DischargeSummaryDraft.model_validate(req.edited)
+            new_rules = learning_engine.extract_feedback_rules(draft_obj, edited_obj)
 
-        # Get the latest distance for this patient
-        distances = learning_engine.performance_history.get(req.patient_name, [])
-        latest_distance = distances[-1] if distances else None
+            # Get the latest distance for this patient
+            distances = learning_engine.performance_history.get(req.patient_name, [])
+            latest_distance = distances[-1] if distances else None
 
-        return {
-            "edit_distance": latest_distance,
-            "new_rules": new_rules,
-            "correction_memory": learning_engine.correction_memory,
-            "all_distances": dict(learning_engine.performance_history)
-        }
+            return {
+                "edit_distance": latest_distance,
+                "new_rules": new_rules,
+                "correction_memory": learning_engine.correction_memory,
+                "all_distances": dict(learning_engine.performance_history)
+            }
+
+        from starlette.concurrency import run_in_threadpool
+        result = await run_in_threadpool(execute_learning_sync)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Learning step failed: {str(e)}")
 
@@ -202,51 +210,55 @@ async def run_full_pipeline(patient_name: str = Query(...)):
         raise HTTPException(status_code=404, detail=f"Patient '{patient_name}' not found. Upload a PDF first.")
 
     try:
-        local_engine = FeedbackLearningEngine()
-        local_doctor = DoctorSimulator()
-        iterations = []
+        def execute_pipeline_sync():
+            local_engine = FeedbackLearningEngine()
+            local_doctor = DoctorSimulator()
+            iterations = []
 
-        for iteration_num in range(1, 4):
-            agent = ClinicalAgentLoop(feedback_memory=local_engine.correction_memory)
-            payload = agent.run(patient_id=patient_name, raw_clinical_text=raw_text)
-            draft = payload.final_draft
-            edited = local_doctor.apply_hidden_doctor_policy(draft)
+            for iteration_num in range(1, 4):
+                agent = ClinicalAgentLoop(feedback_memory=local_engine.correction_memory)
+                payload = agent.run(patient_id=patient_name, raw_clinical_text=raw_text)
+                draft = payload.final_draft
+                edited = local_doctor.apply_hidden_doctor_policy(draft)
 
-            str_d = f"{draft.principal_diagnosis} | {draft.follow_up_instructions}"
-            str_e = f"{edited.principal_diagnosis} | {edited.follow_up_instructions}"
-            local_engine.register_iteration_performance(patient_name, str_d, str_e)
+                str_d = f"{draft.principal_diagnosis} | {draft.follow_up_instructions}"
+                str_e = f"{edited.principal_diagnosis} | {edited.follow_up_instructions}"
+                local_engine.register_iteration_performance(patient_name, str_d, str_e)
 
-            distances = local_engine.performance_history.get(patient_name, [])
+                distances = local_engine.performance_history.get(patient_name, [])
 
-            if iteration_num == 1:
-                local_engine.extract_feedback_rules(draft, edited)
+                if iteration_num == 1:
+                    local_engine.extract_feedback_rules(draft, edited)
 
-            iterations.append({
-                "iteration": iteration_num,
-                "draft": draft.model_dump(),
-                "edited": edited.model_dump(),
-                "edit_distance": distances[-1] if distances else 0,
-                "trace": [t.model_dump() for t in payload.execution_trace],
-                "total_steps": payload.total_steps_executed,
-                "correction_memory": list(local_engine.correction_memory)
-            })
+                iterations.append({
+                    "iteration": iteration_num,
+                    "draft": draft.model_dump(),
+                    "edited": edited.model_dump(),
+                    "edit_distance": distances[-1] if distances else 0,
+                    "trace": [t.model_dump() for t in payload.execution_trace],
+                    "total_steps": payload.total_steps_executed,
+                    "correction_memory": list(local_engine.correction_memory)
+                })
 
-        # Save outputs
-        patient_slug = patient_name.replace(" ", "_")
-        draft_path = f"output/drafts/{patient_slug}_draft.json"
-        with open(draft_path, "w") as f:
-            json.dump(iterations[-1]["draft"], f, indent=4)
+            # Save outputs
+            patient_slug = patient_name.replace(" ", "_")
+            draft_path = f"output/drafts/{patient_slug}_draft.json"
+            with open(draft_path, "w") as f:
+                json.dump(iterations[-1]["draft"], f, indent=4)
 
-        trace_path = f"output/traces/{patient_slug}_trace.json"
-        with open(trace_path, "w") as f:
-            json.dump(iterations[-1]["trace"], f, indent=4)
+            trace_path = f"output/traces/{patient_slug}_trace.json"
+            with open(trace_path, "w") as f:
+                json.dump(iterations[-1]["trace"], f, indent=4)
 
-        result = {
-            "patient_name": patient_name,
-            "iterations": iterations,
-            "final_correction_memory": list(local_engine.correction_memory),
-            "learning_data": dict(local_engine.performance_history)
-        }
+            return {
+                "patient_name": patient_name,
+                "iterations": iterations,
+                "final_correction_memory": list(local_engine.correction_memory),
+                "learning_data": dict(local_engine.performance_history)
+            }
+
+        from starlette.concurrency import run_in_threadpool
+        result = await run_in_threadpool(execute_pipeline_sync)
         pipeline_results[patient_name] = result
         return result
 

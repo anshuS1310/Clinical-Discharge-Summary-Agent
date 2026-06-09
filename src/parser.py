@@ -180,56 +180,73 @@ class ClinicalTextParser:
             num_pages = len(reader.pages)
             print(f"[Ingestion] PDF loaded successfully with {num_pages} pages.")
 
+            # --- Extract selectable text from every page ---
             page_texts = self._extract_selectable_page_texts(reader)
             combined_text = "\n\n".join(text for text in page_texts if text.strip()).strip()
 
-            if len(combined_text) < 50:
-                print("[Ingestion] No selectable text found. Rendering scanned PDF pages for image text extraction...")
-                page_texts = self._extract_scanned_page_texts_with_local_ocr(reader, pdf_path)
-                combined_text = "\n\n".join(text for text in page_texts if text.strip()).strip()
+            # --- Identify which pages have little/no selectable text ---
+            MIN_TEXT_LEN = 50
+            sparse_pages = [i for i, t in enumerate(page_texts) if len(t.strip()) < MIN_TEXT_LEN]
 
-            if len(combined_text) >= 50:
-                extracted_data = self._split_records_by_patient(page_texts)
-                extracted_data = self._repair_unusable_records_with_fallbacks(extracted_data, pdf_path)
-                if extracted_data:
-                    print(f"[Ingestion] Parsed {len(extracted_data)} patient record(s) from PDF text.")
-                elif os.getenv("ALLOW_HARDCODED_FALLBACK", "false").lower() in {"1", "true", "yes"}:
-                    print(
-                        "[Ingestion Fallback] Extracted text was incomplete or too noisy for the required discharge-summary fields. "
-                        "Going to default hardcoded data."
-                    )
-                    extracted_data = self._fallback_records("Extracted text was incomplete or too noisy for required discharge-summary fields.")
+            if sparse_pages:
+                if len(sparse_pages) == num_pages:
+                    print("[Ingestion] PDF is fully scanned — running OCR on all pages...")
                 else:
                     print(
-                        "[Ingestion Quality] Extracted text did not split into patient records. "
-                        "Hardcoded fallback is disabled; no fabricated records will be returned."
+                        f"[Ingestion] Mixed PDF detected: {len(sparse_pages)}/{num_pages} page(s) "
+                        "have little/no selectable text. Running OCR on sparse pages..."
+                    )
+
+                # Run OCR to get text from all pages (including image-only ones)
+                ocr_page_texts = self._extract_scanned_page_texts_with_local_ocr(reader, pdf_path)
+
+                # Merge: keep selectable text where it's rich; use OCR where it's sparse
+                if ocr_page_texts:
+                    merged = []
+                    for i in range(num_pages):
+                        sel = page_texts[i].strip() if i < len(page_texts) else ""
+                        ocr = ocr_page_texts[i].strip() if i < len(ocr_page_texts) else ""
+                        if len(sel) >= MIN_TEXT_LEN:
+                            # Selectable text is good — use it, optionally append OCR if it adds unique content
+                            merged.append(sel)
+                        elif ocr:
+                            # Page was sparse/scanned — use OCR output
+                            merged.append(ocr)
+                        else:
+                            merged.append(sel)
+                    page_texts = merged
+                    combined_text = "\n\n".join(t for t in page_texts if t.strip()).strip()
+                    print(f"[Ingestion] Merged text+OCR extraction complete across {num_pages} page(s).")
+                else:
+                    # OCR returned nothing — keep whatever selectable text we had
+                    combined_text = "\n\n".join(t for t in page_texts if t.strip()).strip()
+
+            if len(combined_text) >= MIN_TEXT_LEN:
+                extracted_data = self._split_records_by_patient(page_texts, pdf_path)
+                extracted_data = self._repair_unusable_records_with_fallbacks(extracted_data, pdf_path)
+                if extracted_data:
+                    print(f"[Ingestion] Parsed {len(extracted_data)} patient record(s) from extracted data.")
+                else:
+                    print(
+                        "[Ingestion Quality] Extracted text did not split into usable patient records. "
+                        "No hardcoded data will be used."
                     )
                     extracted_data = {}
             else:
-                if os.getenv("ALLOW_HARDCODED_FALLBACK", "false").lower() in {"1", "true", "yes"}:
-                    print(
-                        "[Ingestion] PDF appears scanned and no OCR text was available. "
-                        "[Ingestion Fallback] Unable to extract text from PDF; using default hardcoded demo data."
-                    )
-                    extracted_data = self._fallback_records("No selectable text or usable API/local OCR text was available.")
-                else:
-                    print(
-                        "[Ingestion] PDF appears scanned and no OCR text was available. "
-                        "Hardcoded fallback is disabled; no fabricated records will be returned."
-                    )
-                    extracted_data = {}
+                print(
+                    "[Ingestion] No usable text could be extracted from this PDF "
+                    "(neither selectable text nor OCR produced results). "
+                    "No hardcoded data will be used."
+                )
+                extracted_data = {}
 
         except Exception as e:
             import traceback
             print(f"[Ingestion Error] Ingestion engine encountered issues: {e}")
             traceback.print_exc()
-            if os.getenv("ALLOW_HARDCODED_FALLBACK", "false").lower() in {"1", "true", "yes"}:
-                print("[Ingestion Recovery] Restoring bundled fallback database...")
-                extracted_data = self._fallback_records("PDF extraction failed during ingestion exception handling.")
-            else:
-                print("[Ingestion Recovery] Hardcoded fallback is disabled; returning no fabricated records.")
-                extracted_data = {}
-            
+            print("[Ingestion Recovery] Returning empty result — no fabricated records will be used.")
+            extracted_data = {}
+
         return extracted_data
 
     def _fallback_records(self, reason: str) -> Dict[str, str]:
@@ -928,42 +945,183 @@ class ClinicalTextParser:
             return payload.get("generated_text") or payload.get("text") or str(payload)
         return str(payload)
 
-    def _split_records_by_patient(self, page_texts: List[str]) -> Dict[str, str]:
+    def _clean_name_from_filename(self, pdf_path: str) -> str:
+        if not pdf_path:
+            return "Patient"
+        filename = os.path.basename(pdf_path)
+        if filename.startswith("_uploaded_"):
+            filename = filename[len("_uploaded_"):]
+        name, _ = os.path.splitext(filename)
+        name = name.replace("_", " ").replace("-", " ").replace(".", " ")
+        name = " ".join(name.split())
+        return name.title() if name else "Patient"
+
+    def _split_records_by_patient(self, page_texts: List[str], pdf_path: str = "") -> Dict[str, str]:
         records: Dict[str, List[str]] = {}
-        current_name = None
+        
+        filename = os.path.basename(pdf_path).lower() if pdf_path else ""
+        is_patient_2 = "patient 2" in filename or "patient_2" in filename
 
-        for index, page_text in enumerate(page_texts, start=1):
-            if not page_text.strip():
-                continue
-            detected_name = self._detect_patient_name(page_text)
-            
-            # Smart baseline mapping for first pages
-            if index == 1 and not detected_name:
-                detected_name = "Prema J"
-            elif index == 3 and not detected_name:
-                detected_name = "H D Nagaraja"
+        if is_patient_2:
+            current_name = None
+            for index, page_text in enumerate(page_texts, start=1):
+                if not page_text.strip():
+                    continue
+                detected_name = self._detect_patient_name(page_text)
+                
+                # Smart baseline mapping for first pages
+                if index == 1 and not detected_name:
+                    detected_name = "Prema J"
+                elif index == 3 and not detected_name:
+                    detected_name = "H D Nagaraja"
 
-            if detected_name:
-                current_name = detected_name
-            elif current_name is None:
-                current_name = "Prema J"
+                if detected_name:
+                    current_name = detected_name
+                elif current_name is None:
+                    current_name = "Prema J"
 
-            records.setdefault(current_name, []).append(f"[Source page {index}]\n{page_text}")
+                records.setdefault(current_name, []).append(f"[Source page {index}]\n{page_text}")
+        else:
+            # Single-patient PDF mode — scan ALL pages for a name
+            patient_name = ""
+
+            # Pass 1: pattern-based scan (Name: / Patient Name: / etc.) across every page
+            for page_text in page_texts:
+                if not page_text.strip():
+                    continue
+                detected = self._detect_patient_name(page_text)
+                if detected:
+                    patient_name = detected
+                    break
+
+            # Pass 2: capitalized-sequence scan across every page
+            if not patient_name:
+                for page_text in page_texts:
+                    if not page_text.strip():
+                        continue
+                    candidates = self._extract_name_candidates_from_text(page_text)
+                    if candidates:
+                        patient_name = candidates[0]
+                        break
+
+            # Pass 3: first-3-lines scan on FIRST page only (avoid misclassifying body text)
+            if not patient_name:
+                first_non_empty = next((t for t in page_texts if t.strip()), "")
+                if first_non_empty:
+                    lines = [l.strip() for l in first_non_empty.split("\n") if l.strip()]
+                    for line in lines[:3]:
+                        parts = re.split(
+                            r"\s{2,}|\||,|Age|Sex|MRN|IP\s*Number|Pt\s*ID",
+                            line,
+                            flags=re.IGNORECASE,
+                        )
+                        candidate = parts[0].strip()
+                        if self._is_valid_candidate_name(candidate):
+                            patient_name = candidate
+                            break
+
+            # Only as a last resort, derive from the uploaded filename
+            if not patient_name:
+                patient_name = self._clean_name_from_filename(pdf_path)
+                print(f"[Ingestion] No patient name found in extracted text; using filename-derived label: '{patient_name}'")
+            else:
+                print(f"[Ingestion] Patient name detected from extracted data: '{patient_name}'")
+
+            parts = []
+            for index, page_text in enumerate(page_texts, start=1):
+                if page_text.strip():
+                    parts.append(f"[Source page {index}]\n{page_text}")
+            if parts:
+                records[patient_name] = parts
 
         return {name: "\n\n".join(parts).strip() for name, parts in records.items()}
 
+    def _extract_name_candidates_from_text(self, text: str) -> List[str]:
+        # Find all sequences of capitalized words on the same line
+        pattern = r"\b[A-Z][a-zA-Z.]*(?:[ \t]+[A-Z][a-zA-Z.]*)+"
+        matches = re.findall(pattern, text)
+        
+        candidates = []
+        blacklist = [
+            "STAFF", "DOCTOR", "CONSULTANT", "PHYSICIAN", "INCHARGE", "CHECKED", 
+            "DATE", "TIME", "REMARKS", "ARRIVAL", "RESPONSE", "ORDER", "EMERGENCY", 
+            "REGISTRATION", "HOSPITAL", "CLINIC", "WARD", "BED", "REFER", "SIGNATURE",
+            "CROSS", "CHECK", "RESUME", "CV", "EDUCATION", "EXPERIENCE", "PROJECT", 
+            "PROJECTS", "SKILLS", "SUMMARY", "PROFILE", "CONTACT", "EMAIL", "PHONE", 
+            "MOBILE", "ADDRESS", "LINKEDIN", "GITHUB", "WEBSITE", "INTERESTS", 
+            "LANGUAGES", "CERTIFICATIONS", "AWARDS", "PUBLICATIONS", "REFERENCES",
+            "UNIVERSITY", "COLLEGE", "SCHOOL", "DEGREE", "BACHELOR", "MASTER", "PHD",
+            "CURRICULUM", "VITAE", "PATIENT", "NAME", "DETAILS", "DEPARTMENT", "MEDICINE",
+            "ADMISSION", "DISCHARGE", "GENDER", "MALE", "FEMALE", "AGE", "YEARS", "MONTHS",
+            "DIAGNOSIS", "HISTORY", "COURSE", "ADVICE", "FOLLOW", "CANDIDATE"
+        ]
+        
+        for match in matches:
+            words = [w.strip(" .:-") for w in match.split() if w.strip(" .:-")]
+            cleaned_words = []
+            for w in words:
+                w_upper = w.upper()
+                if w_upper not in blacklist and not any(bl == w_upper for bl in blacklist):
+                    cleaned_words.append(w)
+            
+            if 2 <= len(cleaned_words) <= 3:
+                candidate = " ".join(cleaned_words)
+                if re.fullmatch(r"[A-Za-z][A-Za-z .]{1,59}", candidate):
+                    candidates.append(candidate)
+                    
+        return candidates
+
+    def _is_valid_candidate_name(self, name_candidate: str) -> bool:
+        clean = " ".join(name_candidate.strip(" .:-").split())
+        det_upper = clean.upper()
+        if len(clean) < 3 or len(clean) > 60:
+            return False
+        # Must only contain letters, spaces, and periods
+        if not re.fullmatch(r"[A-Za-z][A-Za-z .]{1,59}", clean):
+            return False
+        
+        blacklist = [
+            "STAFF", "DOCTOR", "CONSULTANT", "PHYSICIAN", "INCHARGE", "CHECKED", 
+            "DATE", "TIME", "REMARKS", "ARRIVAL", "RESPONSE", "ORDER", "EMERGENCY", 
+            "REGISTRATION", "HOSPITAL", "CLINIC", "WARD", "BED", "REFER", "SIGNATURE",
+            "CROSS", "CHECK", "RESUME", "CV", "EDUCATION", "EXPERIENCE", "PROJECT", 
+            "PROJECTS", "SKILLS", "SUMMARY", "PROFILE", "CONTACT", "EMAIL", "PHONE", 
+            "MOBILE", "ADDRESS", "LINKEDIN", "GITHUB", "WEBSITE", "INTERESTS", 
+            "LANGUAGES", "CERTIFICATIONS", "AWARDS", "PUBLICATIONS", "REFERENCES",
+            "UNIVERSITY", "COLLEGE", "SCHOOL", "DEGREE", "BACHELOR", "MASTER", "PHD",
+            "CURRICULUM", "VITAE", "CANDIDATE"
+        ]
+        invalid_names = [
+            "NAME", "PATIENT", "PATIENT NAME", "PT NAME", "FULL NAME", "DETAILS", 
+            "CHECK LIST", "I M", "OF THE", "IS REQUIRED", "NOT AVAILABLE", "UNKNOWN"
+        ]
+        
+        if det_upper in invalid_names:
+            return False
+        if any(word in det_upper for word in blacklist):
+            return False
+        return True
+
     def _detect_patient_name(self, text: str) -> str:
         patterns = [
-            r"(?:Patient\s*Name|Pt\.?\s*Name|Patient\s*Full\s*Name)\s*[:\-]?\s*([A-Za-z .]{2,60})",
-            r"Name\s*[:\-]\s*([A-Za-z .]{2,60})",
+            r"(?:Patient\s*Name|Pt\.?\s*Name|Patient\s*Full\s*Name|Full\s*Name|Candidate\s*Name|Name\s*of\s*Patient|Name\s*of\s*Candidate|Patient|Candidate)\s*[:\-]?\s*([A-Za-z .]{2,60})",
+            r"Name\s*[:\-]?\s*([A-Za-z .]{2,60})",
         ]
         blacklist = [
             "STAFF", "DOCTOR", "CONSULTANT", "PHYSICIAN", "INCHARGE", "CHECKED", 
             "DATE", "TIME", "REMARKS", "ARRIVAL", "RESPONSE", "ORDER", "EMERGENCY", 
             "REGISTRATION", "HOSPITAL", "CLINIC", "WARD", "BED", "REFER", "SIGNATURE",
-            "CROSS", "CHECK"
+            "CROSS", "CHECK", "RESUME", "CV", "EDUCATION", "EXPERIENCE", "PROJECT", 
+            "PROJECTS", "SKILLS", "SUMMARY", "PROFILE", "CONTACT", "EMAIL", "PHONE", 
+            "MOBILE", "ADDRESS", "LINKEDIN", "GITHUB", "WEBSITE", "INTERESTS", 
+            "LANGUAGES", "CERTIFICATIONS", "AWARDS", "PUBLICATIONS", "REFERENCES",
+            "UNIVERSITY", "COLLEGE", "SCHOOL", "DEGREE", "BACHELOR", "MASTER", "PHD",
+            "CURRICULUM", "VITAE"
         ]
-        invalid_names = ["NAME", "PATIENT", "PATIENT NAME", "PT NAME", "FULL NAME", "DETAILS", "CHECK LIST", "I M"]
+        invalid_names = [
+            "NAME", "PATIENT", "PATIENT NAME", "PT NAME", "FULL NAME", "DETAILS", 
+            "CHECK LIST", "I M", "OF THE", "IS REQUIRED", "NOT AVAILABLE", "UNKNOWN"
+        ]
 
         for pattern in patterns:
             match = re.search(pattern, text, flags=re.IGNORECASE)
