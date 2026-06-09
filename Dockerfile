@@ -25,5 +25,5 @@ RUN mkdir -p output/drafts output/traces output/plots data/raw_patients
 
 EXPOSE 8000
 
-# Railway injects $PORT at runtime
-CMD uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}
+# Use bash so ${PORT:-8000} is properly expanded at container start
+CMD ["/bin/bash", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
