@@ -1,14 +1,11 @@
-// ================================================================
-// ClinicalAI — Discharge Summary Agent · Frontend Logic
-// Light hospital theme · Full API integration · Print/PDF support
-// ================================================================
+// ClinicalAI — Discharge Summary Agent — Frontend Logic
 
 // Dynamically resolve API base URL
 const API = window.location.protocol === 'file:'
     ? 'http://localhost:8000'
     : '';
 
-// ── Global State ─────────────────────────────────────────────────────
+// Global state
 const state = {
     patients:             {},   // patient_name -> { preview, full_length }
     patientTexts:         {},   // patient_name -> raw_text preview
@@ -22,7 +19,7 @@ const state = {
     learningChart:        null,
 };
 
-// ── Tab Navigation ────────────────────────────────────────────────────
+// Tab navigation
 function switchTab(tabId) {
     document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -43,7 +40,7 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     tab.addEventListener('click', () => switchTab(tab.dataset.tab));
 });
 
-// ── Summary Sub-tabs ──────────────────────────────────────────────────
+// Summary sub-tabs
 function switchSummaryTab(subTab) {
     state.currentSummaryTab = subTab;
 
@@ -58,13 +55,13 @@ function switchSummaryTab(subTab) {
     document.getElementById('summary-diff-view').style.display     = subTab === 'diff'     ? 'block' : 'none';
 }
 
-// ── Toast Notifications ───────────────────────────────────────────────
+// Toast notifications
 function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
     const toast     = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    const icons = { success: '✅', error: '❌', info: 'ℹ️' };
-    toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${message}</span>`;
+    const icons = { success: '', error: '', info: '' };
+    toast.innerHTML = `<span>${icons[type] || ''}</span><span>${message}</span>`;
     container.appendChild(toast);
     setTimeout(() => {
         toast.classList.add('removing');
@@ -72,7 +69,7 @@ function showToast(message, type = 'info') {
     }, 4000);
 }
 
-// ── API Helpers ───────────────────────────────────────────────────────
+// API helpers
 async function apiGet(url) {
     const res = await fetch(`${API}${url}`);
     if (!res.ok) {
@@ -98,7 +95,7 @@ async function apiPost(url, body, isFormData = false) {
     return res.json();
 }
 
-// ── Dashboard ─────────────────────────────────────────────────────────
+// Dashboard
 async function refreshDashboard() {
     try {
         const [draftsRes, tracesRes, learningRes] = await Promise.all([
@@ -118,7 +115,7 @@ async function refreshDashboard() {
             totalSteps += (t.data || []).length;
         });
 
-        let bestScore = '—';
+        let bestScore = '';
         const ld = learningRes.learning_data;
         if (ld && Object.keys(ld).length > 0) {
             let minLast = Infinity;
@@ -155,7 +152,7 @@ function animateStatValue(elementId, targetValue) {
     }, 30);
 }
 
-// ── PDF Upload ────────────────────────────────────────────────────────
+// PDF upload
 const uploadZone = document.getElementById('upload-zone');
 const fileInput  = document.getElementById('file-input');
 
@@ -199,7 +196,7 @@ async function handleFileUpload(file) {
         });
 
         renderPatientCards();
-        showToast(`✅ Extracted ${Object.keys(result.patients).length} patient(s) successfully.`, 'success');
+        showToast(` Extracted ${Object.keys(result.patients).length} patient(s) successfully.`, 'success');
     } catch (e) {
         showToast(`Upload failed: ${e.message}`, 'error');
         resetUploadZone();
@@ -208,9 +205,9 @@ async function handleFileUpload(file) {
 
 function resetUploadZone() {
     uploadZone.innerHTML = `
-        <div class="upload-zone-icon">📁</div>
+        <div class="upload-zone-icon"></div>
         <div class="upload-zone-text">Drag &amp; drop a clinical PDF here, or <strong style="color:var(--blue)">click to browse</strong></div>
-        <div class="upload-zone-hint" style="margin-top:8px;">Supports multi-patient PDF documents · PDF format only</div>
+        <div class="upload-zone-hint" style="margin-top:8px;">Supports multi-patient PDF documents  PDF format only</div>
     `;
 }
 
@@ -227,16 +224,16 @@ function renderPatientCards() {
         card.style.animationDelay = `${idx * 0.12}s`;
         card.innerHTML = `
             <div class="patient-card-header">
-                <span class="patient-name">👤 ${escapeHtml(name)}</span>
+                <span class="patient-name"> ${escapeHtml(name)}</span>
                 <span class="patient-badge">${(info.full_length / 1000).toFixed(1)}K chars</span>
             </div>
             <div class="patient-text-preview">${escapeHtml(info.preview)}</div>
             <div class="patient-actions">
                 <button class="btn btn-primary btn-sm" id="run-btn-${idx}" onclick="runFullPipeline('${escapeAttr(name)}', ${idx})">
-                    🚀 Run Full Pipeline
+                     Run Full Pipeline
                 </button>
                 <button class="btn btn-outline btn-sm" onclick="switchTab('agent')">
-                    🔍 Monitor
+                     Monitor
                 </button>
             </div>
         `;
@@ -244,45 +241,9 @@ function renderPatientCards() {
     });
 }
 
-// ── Full Pipeline Execution ───────────────────────────────────────────
-async function runFullPipeline(patientName, btnIdx) {
-    const btn = document.getElementById(`run-btn-${btnIdx}`);
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<div class="spinner"></div> Processing...';
-    }
+// Full pipeline execution
 
-    showToast(`Starting 3-iteration pipeline for ${patientName}...`, 'info');
-    switchTab('agent');
-    showAgentMonitor(patientName);
-
-    try {
-        const result = await apiGet(`/api/run-full-pipeline?patient_name=${encodeURIComponent(patientName)}`);
-        state.pipelineResults[patientName] = result;
-
-        const finalIteration = result.iterations[result.iterations.length - 1];
-        await animateAgentTimeline(patientName, finalIteration.trace, result.iterations.length);
-
-        showToast(`Pipeline complete for ${patientName}! Distance: ${finalIteration.edit_distance.toFixed(4)}`, 'success');
-
-        updatePatientSelectors();
-
-        state.currentSummaryPatient  = patientName;
-        state.currentLearningPatient = patientName;
-        state.currentTracePatient    = patientName;
-
-    } catch (e) {
-        showToast(`Pipeline failed: ${e.message}`, 'error');
-        updateAgentStatus('Error', 'status-executing');
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = '🚀 Run Full Pipeline';
-        }
-    }
-}
-
-// ── Agent Monitor ─────────────────────────────────────────────────────
+// Agent monitor
 function showAgentMonitor(patientName) {
     document.getElementById('agent-empty').style.display  = 'none';
     document.getElementById('agent-live').style.display   = 'block';
@@ -303,13 +264,13 @@ function updateAgentProgress(current, max) {
 function updateAgentStatus(label, className) {
     const badge   = document.getElementById('agent-status-badge');
     badge.className  = `status-badge ${className}`;
-    badge.textContent = `● ${label}`;
+    badge.textContent = ` ${label}`;
 }
 
 async function animateAgentTimeline(patientName, trace, iteration) {
     const timeline = document.getElementById('agent-timeline');
     timeline.innerHTML = '';
-    document.getElementById('agent-iteration-label').textContent = `Iteration ${iteration} — Final Aligned Run`;
+    document.getElementById('agent-iteration-label').textContent = `Iteration ${iteration}  Final Aligned Run`;
 
     const totalSteps = trace.length;
 
@@ -340,14 +301,14 @@ async function animateAgentTimeline(patientName, trace, iteration) {
                 </div>
                 <div class="step-reasoning">${escapeHtml(step.reasoning)}</div>
                 <div class="step-result">${escapeHtml(step.result)}</div>
-                <div class="step-next">→ Next: ${escapeHtml(step.next_decision)}</div>
+                <div class="step-next"> Next: ${escapeHtml(step.next_decision)}</div>
             </div>
         `;
         timeline.appendChild(stepEl);
         await sleep(280);
     }
 
-    updateAgentStatus('Complete ✓', 'status-complete');
+    updateAgentStatus('Complete ', 'status-complete');
     updateAgentProgress(totalSteps, totalSteps);
 }
 
@@ -370,15 +331,15 @@ function getToolClass(tool) {
 }
 
 function getToolIcon(tool) {
-    if (tool.includes('Medication'))                   return '💊';
-    if (tool.includes('Pending') || tool.includes('Results')) return '🧪';
-    if (tool.includes('Diagnostic'))                   return '📊';
-    if (tool.includes('Flag') || tool.includes('Contradiction')) return '🚩';
-    if (tool.includes('FINAL'))                        return '✅';
-    return '🔧';
+    if (tool.includes('Medication'))                   return '';
+    if (tool.includes('Pending') || tool.includes('Results')) return '';
+    if (tool.includes('Diagnostic'))                   return '';
+    if (tool.includes('Flag') || tool.includes('Contradiction')) return '';
+    if (tool.includes('FINAL'))                        return '';
+    return '';
 }
 
-// ── Patient Selectors ─────────────────────────────────────────────────
+// Patient selectors
 function updatePatientSelectors() {
     const pipelineNames = Object.keys(state.pipelineResults);
 
@@ -417,7 +378,7 @@ function renderPatientSelector(containerId, names, onClick) {
     names.forEach(name => {
         const btn = document.createElement('button');
         btn.className  = 'patient-select-btn';
-        btn.textContent = `🧑‍⚕️ ${name}`;
+        btn.textContent = ` ${name}`;
         btn.onclick = () => {
             container.querySelectorAll('.patient-select-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
@@ -427,7 +388,7 @@ function renderPatientSelector(containerId, names, onClick) {
     });
 }
 
-// ── Discharge Summary Viewer ──────────────────────────────────────────
+// Discharge summary viewer
 async function loadSavedDrafts() {
     try {
         const res = await apiGet('/api/drafts');
@@ -480,7 +441,7 @@ function renderSummaryForPatient(patientName) {
     switchSummaryTab(state.currentSummaryTab);
 }
 
-// ── Discharge Summary — Beautiful Paper Document ──────────────────────
+// Discharge summary document renderer
 function renderDischargeSummary(draft) {
     const el       = document.getElementById('summary-content');
     const flags    = draft.clinical_safety_flags  || [];
@@ -498,14 +459,14 @@ function renderDischargeSummary(draft) {
             <!-- Official Header -->
             <div class="discharge-header">
                 <div style="display:flex; align-items:center; gap:14px;">
-                    <div style="font-size:2rem;">🏥</div>
+                    <div style="font-size:2rem;"></div>
                     <div>
                         <div class="discharge-hospital-name">ClinicalAI Medical Center</div>
-                        <div class="discharge-doc-title">Clinical Discharge Summary — Confidential</div>
+                        <div class="discharge-doc-title">Clinical Discharge Summary  Confidential</div>
                     </div>
                 </div>
                 <div style="margin-top:16px; font-size:0.8rem; opacity:0.65; border-top:1px solid rgba(255,255,255,0.2); padding-top:12px;">
-                    Generated by ClinicalAI Discharge Summary Agent · AI-assisted, clinician-reviewed
+                    Generated by ClinicalAI Discharge Summary Agent  AI-assisted, clinician-reviewed
                 </div>
             </div>
 
@@ -625,15 +586,15 @@ function renderDischargeSummary(draft) {
                 ${pending.length > 0 ? `
                 <!-- 8. Pending Results -->
                 <div class="discharge-section">
-                    <div class="discharge-section-title" style="color:var(--amber);">⚠ Pending Results</div>
-                    ${pending.map(p => `<div class="pending-box">⏳ ${escapeHtml(p)}</div>`).join('')}
+                    <div class="discharge-section-title" style="color:var(--amber);"> Pending Results</div>
+                    ${pending.map(p => `<div class="pending-box"> ${escapeHtml(p)}</div>`).join('')}
                 </div>
                 ` : ''}
 
                 ${flags.length > 0 ? `
                 <!-- 9. Clinical Safety Flags -->
                 <div class="discharge-section">
-                    <div class="discharge-section-title" style="color:var(--red);">🚩 Clinical Safety Flags (${flags.length})</div>
+                    <div class="discharge-section-title" style="color:var(--red);"> Clinical Safety Flags (${flags.length})</div>
                     <div class="flags-grid">
                         ${flags.map(f => `
                             <div class="flag-card flag-${f.category}">
@@ -664,37 +625,37 @@ function renderDischargeSummary(draft) {
 
 function getConditionClass(condition) {
     const c = (condition || '').toLowerCase();
-    if (c.includes('stable'))   return { bg: '#D1FAE5', color: '#059669', icon: '✅' };
-    if (c.includes('critical')) return { bg: '#FEE2E2', color: '#DC2626', icon: '🔴' };
-    if (c.includes('guarded'))  return { bg: '#FEF3C7', color: '#D97706', icon: '⚠️' };
-    if (c.includes('fair'))     return { bg: '#E0F2FE', color: '#0284C7', icon: '💙' };
-    return { bg: '#EDE9FE', color: '#7C3AED', icon: '🏥' };
+    if (c.includes('stable'))   return { bg: '#D1FAE5', color: '#059669', icon: '' };
+    if (c.includes('critical')) return { bg: '#FEE2E2', color: '#DC2626', icon: '' };
+    if (c.includes('guarded'))  return { bg: '#FEF3C7', color: '#D97706', icon: '' };
+    if (c.includes('fair'))     return { bg: '#E0F2FE', color: '#0284C7', icon: '' };
+    return { bg: '#EDE9FE', color: '#7C3AED', icon: '' };
 }
 
 function formatFlagCategory(cat) {
     const map = {
-        'MISSING_DATA':          '⚠️ Missing Data',
-        'MEDICATION_MISMATCH':   '💊 Medication Mismatch',
-        'CONFLICTING_DIAGNOSES': '⚡ Conflicting Diagnoses',
-        'PENDING_RESULT_WARNING':'⏳ Pending Result Warning',
+        'MISSING_DATA':          ' Missing Data',
+        'MEDICATION_MISMATCH':   ' Medication Mismatch',
+        'CONFLICTING_DIAGNOSES': ' Conflicting Diagnoses',
+        'PENDING_RESULT_WARNING':' Pending Result Warning',
     };
     return map[cat] || cat;
 }
 
-// ── Print & PDF ───────────────────────────────────────────────────────
+// Print & PDF export
 function printSummary() {
     window.print();
 }
 
 function downloadSummaryPDF() {
     // Use print-to-PDF via browser's print dialog with PDF destination
-    showToast('Opening print dialog — select "Save as PDF" to download.', 'info');
+    showToast('Opening print dialog  select "Save as PDF" to download.', 'info');
     setTimeout(() => {
         window.print();
     }, 600);
 }
 
-// ── Diff View ─────────────────────────────────────────────────────────
+// Diff view
 function renderDiffView(draft, edited) {
     document.getElementById('diff-empty').style.display   = 'none';
     document.getElementById('diff-content').style.display = 'grid';
@@ -707,8 +668,8 @@ function renderDiffView(draft, edited) {
         { label: 'Discharge Condition',    key: 'discharge_condition' },
     ];
 
-    let leftHtml  = '<div class="diff-panel card-static diff-ai"><div class="diff-panel-title">🤖 AI Agent Draft</div><div class="diff-content">';
-    let rightHtml = '<div class="diff-panel card-static diff-doctor"><div class="diff-panel-title">👨‍⚕️ Doctor-Edited Version</div><div class="diff-content">';
+    let leftHtml  = '<div class="diff-panel card-static diff-ai"><div class="diff-panel-title"> AI Agent Draft</div><div class="diff-content">';
+    let rightHtml = '<div class="diff-panel card-static diff-doctor"><div class="diff-panel-title"> Doctor-Edited Version</div><div class="diff-content">';
 
     fields.forEach(f => {
         const orig = draft[f.key]  || '';
@@ -753,7 +714,7 @@ function findAddedText(original, edited) {
     return { prefix, shared, suffix };
 }
 
-// ── Learning Panel ────────────────────────────────────────────────────
+// Learning panel
 async function loadLearningData() {
     updatePatientSelectors();
 
@@ -799,7 +760,7 @@ function renderLearningForPatient(patientName) {
             <div class="iteration-label">${labels[idx] || ''}</div>
             <div class="iteration-score ${isZero ? 'score-zero' : 'score-high'}">${iter.edit_distance.toFixed(4)}</div>
             <div class="iteration-status" style="color:${isZero ? 'var(--teal)' : 'var(--red)'}">
-                ${isZero ? '✅ Perfect Alignment' : '⚡ Corrections Needed'}
+                ${isZero ? ' Perfect Alignment' : ' Corrections Needed'}
             </div>
         `;
         grid.appendChild(card);
@@ -825,7 +786,7 @@ function renderLearningForPatient(patientName) {
         rules.forEach(rule => {
             const card = document.createElement('div');
             card.className = 'card-static rule-card';
-            card.innerHTML = `<div class="rule-icon">📏</div><div class="rule-text">${escapeHtml(rule)}</div>`;
+            card.innerHTML = `<div class="rule-icon"></div><div class="rule-text">${escapeHtml(rule)}</div>`;
             rulesList.appendChild(card);
         });
     }
@@ -898,7 +859,7 @@ function renderLearningChartFromData(data) {
     });
 }
 
-// ── Trace Explorer ────────────────────────────────────────────────────
+// Trace explorer
 async function loadSavedTraces() {
     try {
         const res = await apiGet('/api/traces');
@@ -957,7 +918,7 @@ function renderTraceAccordion(traceData) {
         const toolName = extractToolName(step.action_chosen);
         item.innerHTML = `
             <div class="trace-item-header" onclick="this.parentElement.classList.toggle('open')">
-                <span class="chevron">▶</span>
+                <span class="chevron"></span>
                 <span class="step-number">${step.step_number}</span>
                 <span class="tool-pill ${getToolClass(toolName)}">${getToolIcon(toolName)} ${toolName}</span>
                 <span style="flex:1; font-size:0.8rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
@@ -986,7 +947,7 @@ function filterTraces() {
     });
 }
 
-// ── Utility Functions ─────────────────────────────────────────────────
+// Utility functions
 function escapeHtml(str) {
     if (str === null || str === undefined) return '';
     const div       = document.createElement('div');
@@ -1022,7 +983,7 @@ function highlightPatientBtn(containerId, patientName) {
     });
 }
 
-// ── API Key Panel ─────────────────────────────────────────────────────
+// API key panel
 
 function toggleApiKeyPanel() {
     const card = document.getElementById('api-key-card');
@@ -1040,10 +1001,10 @@ function toggleKeyVisibility() {
     if (!input) return;
     if (input.type === 'password') {
         input.type = 'text';
-        if (btn) btn.textContent = '🙈';
+        if (btn) btn.textContent = '';
     } else {
         input.type = 'password';
-        if (btn) btn.textContent = '👁';
+        if (btn) btn.textContent = '';
     }
 }
 
@@ -1063,7 +1024,7 @@ async function saveApiKey() {
 
     try {
         await apiPost('/api/set-api-key', { api_key: key });
-        showToast('✅ API key saved! The agent will now use your provider for processing.', 'success');
+        showToast(' API key saved! The agent will now use your provider for processing.', 'success');
         input.value = '';
         input.type  = 'password';
         await checkConfigStatus();
@@ -1075,7 +1036,7 @@ async function saveApiKey() {
         showToast(`Failed to save key: ${e.message}`, 'error');
     } finally {
         btn.disabled  = false;
-        btn.innerHTML = '💾 Save & Apply';
+        btn.innerHTML = ' Save & Apply';
     }
 }
 
@@ -1091,12 +1052,12 @@ async function checkConfigStatus() {
 
         if (cfg.has_key) {
             badge.className    = 'api-status-badge active';
-            text.textContent   = `${cfg.provider} · ${cfg.model}`;
-            if (subtitle) subtitle.textContent = `Active: ${cfg.provider} — ${cfg.model}`;
+            text.textContent   = `${cfg.provider}  ${cfg.model}`;
+            if (subtitle) subtitle.textContent = `Active: ${cfg.provider}  ${cfg.model}`;
             if (card)  card.classList.add('has-key');
         } else {
             badge.className    = 'api-status-badge inactive';
-            text.textContent   = 'No key — local mode';
+            text.textContent   = 'No key  local mode';
             if (subtitle) subtitle.textContent = 'Add an API key to use a cloud LLM (faster & more accurate)';
             if (card)  card.classList.remove('has-key');
         }
@@ -1116,30 +1077,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// ── Processing Status Panel ───────────────────────────────────────────
+// Processing status panel
 
-// Full pipeline step descriptions — shown progressively while the request runs
+// Full pipeline step descriptions  shown progressively while the request runs
 const PIPELINE_STEPS = [
-    { icon: '📄', msg: 'Parsing clinical text and structuring patient data from the PDF...' },
-    { icon: '🧠', msg: 'Initialising the ReAct agent — loading clinical reasoning modules...' },
-    { icon: '🔍', msg: 'Agent is observing the patient record and planning its first action...' },
-    { icon: '💊', msg: 'Running Medication Reconciliation — cross-checking admission vs discharge meds...' },
-    { icon: '⚖️', msg: 'Comparing prescribed dosages against documented clinical indications...' },
-    { icon: '🧪', msg: 'Checking for pending lab results, cultures, and unresolved diagnostic flags...' },
-    { icon: '📊', msg: 'Running Diagnostic Consistency Check — validating diagnoses against findings...' },
-    { icon: '🚩', msg: 'Scanning for clinical safety contradictions and flagging anomalies...' },
-    { icon: '📝', msg: 'Agent is composing the first-pass discharge summary draft (Iteration 1/3)...' },
-    { icon: '👨‍⚕️', msg: 'Applying simulated doctor review policy — the agent is self-correcting...' },
-    { icon: '📏', msg: 'Measuring edit distance between AI draft and reviewed version...' },
-    { icon: '🎓', msg: 'Extracting correction rules from clinician edits to improve next iteration...' },
-    { icon: '🔁', msg: 'Injecting learned feedback rules — starting Iteration 2/3...' },
-    { icon: '💊', msg: 'Re-running medication reconciliation with improved context...' },
-    { icon: '📝', msg: 'Refining discharge summary with feedback-corrected reasoning (Iteration 2/3)...' },
-    { icon: '👨‍⚕️', msg: 'Doctor review policy applied again — measuring improvement in alignment...' },
-    { icon: '🔁', msg: 'Starting final alignment run — Iteration 3/3...' },
-    { icon: '✨', msg: 'Agent generating final, fully-aligned discharge summary...' },
-    { icon: '🏁', msg: 'Finalising structured output — saving draft, trace, and learning data...' },
-    { icon: '✅', msg: 'Pipeline complete! Your discharge summary is ready to review.' },
+    { icon: '', msg: 'Parsing clinical text and structuring patient data from the PDF...' },
+    { icon: '', msg: 'Initialising the ReAct agent  loading clinical reasoning modules...' },
+    { icon: '', msg: 'Agent is observing the patient record and planning its first action...' },
+    { icon: '', msg: 'Running Medication Reconciliation  cross-checking admission vs discharge meds...' },
+    { icon: '', msg: 'Comparing prescribed dosages against documented clinical indications...' },
+    { icon: '', msg: 'Checking for pending lab results, cultures, and unresolved diagnostic flags...' },
+    { icon: '', msg: 'Running Diagnostic Consistency Check  validating diagnoses against findings...' },
+    { icon: '', msg: 'Scanning for clinical safety contradictions and flagging anomalies...' },
+    { icon: '', msg: 'Agent is composing the first-pass discharge summary draft (Iteration 1/3)...' },
+    { icon: '', msg: 'Applying simulated doctor review policy  the agent is self-correcting...' },
+    { icon: '', msg: 'Measuring edit distance between AI draft and reviewed version...' },
+    { icon: '', msg: 'Extracting correction rules from clinician edits to improve next iteration...' },
+    { icon: '', msg: 'Injecting learned feedback rules  starting Iteration 2/3...' },
+    { icon: '', msg: 'Re-running medication reconciliation with improved context...' },
+    { icon: '', msg: 'Refining discharge summary with feedback-corrected reasoning (Iteration 2/3)...' },
+    { icon: '', msg: 'Doctor review policy applied again  measuring improvement in alignment...' },
+    { icon: '', msg: 'Starting final alignment run  Iteration 3/3...' },
+    { icon: '', msg: 'Agent generating final, fully-aligned discharge summary...' },
+    { icon: '', msg: 'Finalising structured output  saving draft, trace, and learning data...' },
+    { icon: '', msg: 'Pipeline complete! Your discharge summary is ready to review.' },
 ];
 
 let _processingIntervalId  = null;
@@ -1165,7 +1126,7 @@ function showProcessingPanel(patientName) {
     panel.style.display = 'block';
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-    // Elapsed timer — updates every second
+    // Elapsed timer  updates every second
     _elapsedIntervalId = setInterval(() => {
         const secs = Math.floor((Date.now() - _startTime) / 1000);
         const mins = Math.floor(secs / 60);
@@ -1174,7 +1135,7 @@ function showProcessingPanel(patientName) {
         if (el) el.textContent = mins > 0 ? `${mins}m ${s}s` : `${s}s`;
     }, 1000);
 
-    // Step message cycler — advances every ~9 seconds through the steps
+    // Step message cycler  advances every ~9 seconds through the steps
     _processingIntervalId = setInterval(() => {
         if (_stepIndex < PIPELINE_STEPS.length - 2) {
             // Mark current as done
@@ -1195,7 +1156,7 @@ function hideProcessingPanel() {
     // Show final success step
     const last = PIPELINE_STEPS[PIPELINE_STEPS.length - 1];
     setProcessingMessage(last.icon, last.msg);
-    addCompletedStep(last.icon, 'Pipeline complete — all 3 iterations finished.');
+    addCompletedStep(last.icon, 'Pipeline complete  all 3 iterations finished.');
 
     // Hide panel after a short delay
     setTimeout(() => {
@@ -1227,15 +1188,14 @@ function addCompletedStep(icon, msg) {
         <div class="log-dot"></div>
         <span style="font-size:1rem;">${icon}</span>
         <span>${escapeHtml(msg.length > 72 ? msg.substring(0, 72) + '...' : msg)}</span>
-        <span style="margin-left:auto; font-size:0.7rem; color:var(--green); font-weight:700;">✓</span>
+        <span style="margin-left:auto; font-size:0.7rem; color:var(--green); font-weight:700;"></span>
     `;
     log.appendChild(entry);
     // Auto-scroll to bottom
     log.scrollTop = log.scrollHeight;
 }
 
-// ── Override runFullPipeline to hook in the processing panel ──────────
-const _originalRunFullPipeline = runFullPipeline;
+// Full pipeline — shows processing panel on upload tab, then animates agent monitor on completion
 
 async function runFullPipeline(patientName, btnIdx) {
     const btn = document.getElementById(`run-btn-${btnIdx}`);
@@ -1272,7 +1232,7 @@ async function runFullPipeline(patientName, btnIdx) {
         switchTab('agent');
         await animateAgentTimeline(patientName, finalIteration.trace, result.iterations.length);
 
-        showToast(`✅ Pipeline complete for ${patientName}! Edit distance: ${finalIteration.edit_distance.toFixed(4)}`, 'success');
+        showToast(` Pipeline complete for ${patientName}! Edit distance: ${finalIteration.edit_distance.toFixed(4)}`, 'success');
 
         updatePatientSelectors();
         state.currentSummaryPatient  = patientName;
@@ -1286,12 +1246,12 @@ async function runFullPipeline(patientName, btnIdx) {
     } finally {
         if (btn) {
             btn.disabled  = false;
-            btn.innerHTML = '🚀 Run Full Pipeline';
+            btn.innerHTML = ' Run Full Pipeline';
         }
     }
 }
 
-// ── Init ──────────────────────────────────────────────────────────────
+// Init on page load
 document.addEventListener('DOMContentLoaded', () => {
     refreshDashboard();
     checkConfigStatus();     // Show API key status on load
