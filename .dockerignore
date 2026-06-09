@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+.eggs
+*.egg-info
+
+# Virtual environments
+.venv
+venv
+env
+
+# Real .env — never bake secrets into the image
+.env
+
+# Large outputs — mount as a volume in production
+output/
+
+# Editor & OS files
+.DS_Store
+.idea
+.vscode
+*.swp
+
+# PDFs — upload via the web UI at runtime
+data/raw_patients/*.pdf

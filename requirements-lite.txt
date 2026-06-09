@@ -1,0 +1,27 @@
+# requirements-lite.txt
+# Use this for cloud deployments (Railway, Render, HuggingFace) where a
+# live API key is always provided. Skips torch/transformers/easyocr (~3-4 GB).
+
+# Web server
+fastapi>=0.111.0
+uvicorn>=0.29.0
+python-multipart>=0.0.9
+
+# PDF parsing (text-layer PDFs)
+pdfplumber>=0.11.0
+pypdf>=4.2.0
+Pillow>=10.0.0
+
+# LLM API communication
+requests>=2.31.0
+
+# Data validation & metrics
+pydantic>=2.0.0
+Levenshtein>=0.20.9
+
+# Visualisation
+matplotlib>=3.7.1
+numpy>=1.23.0
+
+# Environment
+python-dotenv>=1.0.1
