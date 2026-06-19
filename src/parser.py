@@ -28,6 +28,7 @@ import pypdf
 from io import BytesIO
 from typing import Dict, List
 from config.settings import API_TIMEOUT, get_llm_config
+from PIL import Image, ImageEnhance
 
 class ClinicalTextParser:
     """
@@ -71,99 +72,48 @@ class ClinicalTextParser:
         return clean[:500]
     
     def __init__(self):
-        # High-fidelity fallback patient clinical notes transcribed from data/raw_patients/patient 2.pdf
-        self.fallback_data = {
-            "Prema J": (
-                "PATIENT DEMOGRAPHICS:\n"
-                "Name: Prema J | Pt ID: SSS32561 | Age / Sex: 30y 10m 11d / Female\n"
-                "IP Number: SSS/IPN/25/4160 | Admission Date: 24/02/2026 12:38 PM | Discharge Date: 26/02/2026 02:00 PM\n"
-                "Department: Internal Medicine | Ward/Bed: 3F - Semi Spl/307 B | Referred By: Self\n"
-                "Address: Aralikoppa Hiriyur, Bhadravathi paper town, Shimoga, Karnataka, India\n"
-                "Consultant: DR. SHUNYA SAMPAD (PHYSICIAN)\n\n"
-                "DIAGNOSIS:\n"
-                "1) ACUTE GASTROENTERITIS WITH DEHYDRATION\n"
-                "2) URINARY TRACT INFECTION\n\n"
-                "PAST HISTORY:\n"
-                "K/C/O Thyroid disorder on treatment.\n\n"
-                "PHYSICAL EXAMINATION:\n"
-                "PR-89/min, BP-130/80 mmHg, RR-20/min, SPO2-98% at room air.\n"
-                "CNS-Conscious Oriented, CVS-S1S2(+), RS-B/L NVBS(+), PA-Soft, non tender.\n\n"
-                "INVESTIGATIONS:\n"
-                "Reports Enclosed.\n\n"
-                "COURSE IN THE HOSPITAL:\n"
-                "Patient presented with severe loose stools, vomiting, fatigue, and fever. Admitted to ward. "
-                "Initial investigations showed normal CBC. Serum creatinine was elevated at 1.65 mg/dL. "
-                "Electrolytes showed low sodium (128.00 mmol/L). Urine routine showed ketone bodies (+), "
-                "10-12/hpf pus cells, 15-20/hpf epithelial cells, and bacteria. Urine culture & sensitivity was sent; report is awaited. "
-                "Treated with IV fluids, IV antibiotics, IV PPIs, and IV antiemetics. USG abdomen and pelvis showed "
-                "Grade-I fatty liver changes and mildly edematous ascending colon (could represent colitis). "
-                "Repeat serum creatinine corrected to 1.17 mg/dL. TSH and Free T4 were normal. "
-                "Stool routine showed 2-3/hpf RBC and plenty of pus cells. Discharged at request as attenders were "
-                "unwilling to stay back.\n\n"
-                "CONDITION AT DISCHARGE:\n"
-                "Hemodynamically stable\n\n"
-                "ADVICE ON DISCHARGE (MEDICATIONS):\n"
-                "1. TAB. RACIPER 40MG | 1-0-0 | 7 DAYS (BEFORE FOOD)\n"
-                "2. TAB. EMESET 4MG | 1-1-1 | 3 DAYS\n"
-                "3. TAB. OFLOX TZ | 1-0-1 | 5 DAYS\n"
-                "4. TAB M STRONG | 1-0-0 | 15 DAYS\n"
-                "5. TAB. ZEDOTT | 1-1-1 | 3 DAYS\n"
-                "6. TAB. ENTROFLORA | 1-0-1 | 3 DAYS\n"
-                "7. TAB. MEFTAL SPAS | 1 TAB SOS | 4 TABLETS\n"
-                "8. TAB. LOPIRAMIDE 2MG | 1-0-1 | 5 DAYS\n\n"
-                "FOLLOW-UP INSTRUCTIONS:\n"
-                "Urine culture and sensitivity report is awaited. Review in case of fever, loose stools, vomiting, or fatigue. "
-                "Review on 09.03.2026 with CBC."
-            ),
-            "H D Nagaraja": (
-                "PATIENT DEMOGRAPHICS:\n"
-                "Name: H D Nagaraja | Pt ID (MRN): SSS32770 | Age / Sex: 45y / Male | DOB: 25-10-1980\n"
-                "IP Number: SSS/IPN/25/4204 | Admission Date: 26/02/2026 07:22 PM | Discharge Date: 02/03/2026\n"
-                "Department: Internal Medicine | Consultant: DR. SHUNYA SAMPAD (PHYSICIAN)\n\n"
-                "DIAGNOSIS:\n"
-                "1) DIABETIC KETOACIDOSIS (DKA)\n"
-                "2) TYPE-II DIABETES MELLITUS\n"
-                "3) MILD HEPATOMEGALY WITH GRADE I FATTY INFILTRATION\n"
-                "4) CHOLELITHIASIS WITHOUT CHOLECYSTITIS\n"
-                "5) MILDLY BULKY BILATERAL KIDNEYS (Suggested RFT correlation towards pyelonephritis)\n"
-                "6) MINIMAL ASCITES\n"
-                "7) MINIMAL RIGHT PLEURAL EFFUSION WITH UNDERLYING SUBSEGMENTAL LUNG CONSOLIDATION\n\n"
-                "PAST HISTORY:\n"
-                "Known history of Type-II Diabetes Mellitus. Outpatient home medications not documented on admission.\n\n"
-                "PHYSICAL EXAMINATION:\n"
-                "PR-116/min, BP-87/50 mmHg (hypotension), RR-22/min (tachypnea), SPO2-96% on air (desaturated to 90% in ER, corrected with O2 mask).\n"
-                "Temperature: 98 F (spiked to 102 F & 103 F during stay). GCS 15/15. Pain score 4/10.\n\n"
-                "INVESTIGATIONS:\n"
-                "- CBC (28/02/26): Hb: 10.4 g/dL, TLC: 7830 cells/cumm, Platelets: 1.28 Lakhs/cumm\n"
-                "- CBC (01/03/26): Hb: 10.7 g/dL, TLC: 11,560 cells/cumm, Platelets: 1.60 Lakhs/cumm\n"
-                "- Serum Creatinine (28/02/26): 1.02 mg/dL\n"
-                "- Serum Creatinine (01/03/26): 1.04 mg/dL\n"
-                "- Blood and Urine cultures sent on 27/02/26 - Reports awaited at discharge\n"
-                "- ECG: Sinus tachycardia (108 bpm)\n"
-                "- USG Abdomen & Pelvis (27/02/2026): Liver (17cm) enlarged with grade I fatty infiltration (mild hepatomegaly). "
-                "Gallbladder shows a 13mm conglomerated calculus (cholelithiasis). Bulky kidneys bilaterally. Minimal ascites. "
-                "Minimal right pleural effusion with subsegmental consolidation.\n"
-                "- 2D Echo (27/02/26): Normal LV systolic function, LVEF 60%. AR/MR trivial, TR mild. RVSP 28 mmHg (no PAH).\n\n"
-                "COURSE IN THE HOSPITAL:\n"
-                "Patient presented with Diabetic Ketoacidosis (DKA). Initial ER management: IV Cannulation (18G), Foley's Catheterisation (16F), "
-                "oxygen support, IV Normal Saline (NS) 2 boluses for hypotension, IV pantoprazole (Inj. Pan 40mg), and IV antiemetics (Inj. Emeset 4mg). "
-                "Inj. Human Actrapid infusion was started. GRBS was monitored hourly and then regularized. Transitioned to subcutaneous insulin "
-                "(Inj. Lantus 10 units SC at night, and Humalog/Actrapid). "
-                "On 27/02/26, the patient experienced a fever spike (T 102 F - 103 F) and chills. Treated with Inj. Tramadol IV and Inj. Paracetamol (PCT) 1gm IV. "
-                "Blood and urine cultures were sent. Inj. Meromac 1gm (meropenem) IV was administered for suspected pyelonephritis/UTI. "
-                "Foley's catheter was removed on 01-03-2026. Urologist opinion and CT KUB scan were advised by Dr. Shunya Sampad. "
-                "By 02-03-2026, the patient was stable, oriented, and tolerating a soft diet.\n\n"
-                "CONDITION AT DISCHARGE:\n"
-                "Hemodynamically stable.\n\n"
-                "ADVICE ON DISCHARGE (MEDICATIONS):\n"
-                "1. Inj. Lantus (Insulin Glargine) 10 units SC at bedtime (10 PM).\n"
-                "2. Inj. Human Actrapid / Humalog SC as per blood glucose.\n"
-                "(Note: No oral antibiotics prescribed to complete pyelonephritis/UTI course. Outpatient medications not reconciled or listed).\n\n"
-                "FOLLOW-UP INSTRUCTIONS:\n"
-                "Review with pending blood culture and urine culture reports once available. "
-                "Review immediately in case of fever, chills, vomiting, or abdominal pain."
-            )
+        # Empty fallback data to make parser fully dynamic and prevent hardcoding
+        self.fallback_data = {}
+
+    def _filter_relevant_pages(self, reader, page_texts: List[str]) -> List[int]:
+        """
+        Identify which page indices are relevant medical documents to focus on.
+        Filters out billing records, administrative consent forms, or blank checklist flowcharts.
+        """
+        relevant_indices = []
+        relevant_keywords = {
+            "discharge summary", "discharge note", "history", "hospital course", "course in the hospital",
+            "diagnoses", "diagnosis", "medications", "prescription", "advice on discharge", "follow-up",
+            "follow up", "clinical note", "investigations", "lab report", "treatment", "chief complaint",
+            "patient demographics", "condition at discharge", "procedures"
         }
+        admin_keywords = {
+            "consent for admission", "billing statement", "room tariff", "admitting office copy",
+            "checklist for discharge clearance", "financial counseling", "insurance clearance",
+            "visitor pass", "billing details", "inpatient bill"
+        }
+        
+        for idx, page in enumerate(reader.pages):
+            text = page_texts[idx].lower() if idx < len(page_texts) else ""
+            if len(text.strip()) < 50:
+                # Keep scanned pages as we can't search keywords easily without OCR
+                relevant_indices.append(idx)
+                continue
+                
+            relevance_score = sum(1 for kw in relevant_keywords if kw in text)
+            admin_score = sum(1 for kw in admin_keywords if kw in text)
+            
+            if admin_score > relevance_score + 1:
+                print(f"[Ingestion Filter] Page {idx+1} flagged as administrative (billing/consent) and skipped (admin_score={admin_score}, relevance_score={relevance_score}).")
+                continue
+            
+            relevant_indices.append(idx)
+            
+        if not relevant_indices:
+            return list(range(len(reader.pages)))
+            
+        print(f"[Ingestion Filter] Kept {len(relevant_indices)}/{len(reader.pages)} relevant page(s).")
+        return relevant_indices
 
     def parse_patient_pdf(self, pdf_path: str) -> Dict[str, str]:
         """
@@ -174,6 +124,7 @@ class ClinicalTextParser:
         print(f"[Ingestion] Commencing parsing of raw clinical notes: {os.path.basename(pdf_path)}")
         
         extracted_data = {}
+        temp_pdf_path = None
         
         try:
             reader = pypdf.PdfReader(pdf_path)
@@ -182,9 +133,29 @@ class ClinicalTextParser:
 
             # --- Extract selectable text from every page ---
             page_texts = self._extract_selectable_page_texts(reader)
+            
+            # --- Relevance Filtering ---
+            relevant_indices = self._filter_relevant_pages(reader, page_texts)
+            if len(relevant_indices) < num_pages:
+                print(f"[Ingestion] Constructing filtered patient PDF with relevant pages only: {relevant_indices}")
+                writer = pypdf.PdfWriter()
+                for idx in relevant_indices:
+                    writer.add_page(reader.pages[idx])
+                
+                # Write to a temporary file
+                fd, temp_pdf_path = tempfile.mkstemp(suffix=".pdf", prefix="filtered_patient_")
+                os.close(fd)
+                with open(temp_pdf_path, "wb") as f:
+                    writer.write(f)
+                
+                # Update references
+                pdf_path = temp_pdf_path
+                reader = pypdf.PdfReader(pdf_path)
+                num_pages = len(reader.pages)
+                page_texts = [page_texts[i] for i in relevant_indices]
+
             combined_text = "\n\n".join(text for text in page_texts if text.strip()).strip()
 
-            # --- Identify which pages have little/no selectable text ---
             MIN_TEXT_LEN = 50
             sparse_pages = [i for i, t in enumerate(page_texts) if len(t.strip()) < MIN_TEXT_LEN]
 
@@ -246,76 +217,22 @@ class ClinicalTextParser:
             traceback.print_exc()
             print("[Ingestion Recovery] Returning empty result — no fabricated records will be used.")
             extracted_data = {}
+        finally:
+            if temp_pdf_path and os.path.exists(temp_pdf_path):
+                try:
+                    os.remove(temp_pdf_path)
+                    print(f"[Ingestion Cleanup] Removed temporary filtered PDF: {temp_pdf_path}")
+                except OSError as exc:
+                    print(f"[Ingestion Cleanup] Warning: Could not remove temporary PDF: {exc}")
 
         return extracted_data
 
-    def _fallback_records(self, reason: str) -> Dict[str, str]:
-        return {name: self._fallback_record(name, reason) for name in self.fallback_data}
-
-    def _fallback_record(self, patient_name: str, reason: str) -> str:
-        print(
-            f"[INGESTION FALLBACK NOTICE] DEFAULT HARDCODED DATA USED for {patient_name}. "
-            f"Reason: {reason}"
-        )
-        marker = (
-            "[INGESTION FALLBACK: DEFAULT HARDCODED DATA USED AFTER API/LOCAL OCR EXTRACTION FAILED]\n"
-            f"Reason: {reason}\n\n"
-        )
-        return marker + self.fallback_data[patient_name]
-
     def _repair_unusable_records_with_fallbacks(self, records: Dict[str, str], pdf_path: str = "") -> Dict[str, str]:
-        allow_hardcoded_fallback = os.getenv("ALLOW_HARDCODED_FALLBACK", "false").lower() in {"1", "true", "yes"}
-        if not allow_hardcoded_fallback:
-            if not records:
-                print(
-                    "[Ingestion Quality] OCR did not recover any patient records. "
-                    "Hardcoded fallback is disabled; returning no extracted records."
-                )
-                return {}
-            for patient_name, text in records.items():
-                self._record_is_usable(patient_name, text)
-            print(
-                "[Ingestion Quality] Hardcoded fallback is disabled. Keeping OCR-derived records "
-                "and requiring the agent to mark unreliable fields as missing/pending."
-            )
-            return records
-
-        if os.path.basename(pdf_path).lower() == "patient 2.pdf":
-            repaired = dict(records)
-            for expected_patient in ["Prema J", "H D Nagaraja"]:
-                if expected_patient not in repaired:
-                    print(
-                        "[Ingestion Quality] Bundled assignment PDF extraction did not recover "
-                        f"{expected_patient}. Using fallback for that patient only."
-                    )
-                    repaired[expected_patient] = self._fallback_record(
-                        expected_patient,
-                        f"OCR did not recover the {expected_patient} record.",
-                    )
-                elif not self._record_is_usable(expected_patient, repaired[expected_patient]):
-                    print(
-                        f"[Ingestion Quality] OCR record for {expected_patient} is not usable enough. "
-                        "Using fallback for that patient only."
-                    )
-                    repaired[expected_patient] = self._fallback_record(
-                        expected_patient,
-                        f"OCR text for {expected_patient} was incomplete or too noisy.",
-                    )
-            return repaired
-
-        if not records:
-            return {}
-
-        repaired = {}
-        for patient_name, text in records.items():
-            if self._record_is_usable(patient_name, text):
-                repaired[patient_name] = text
-            else:
-                print(
-                    f"[Ingestion Quality] Record for {patient_name} is not usable enough "
-                    "for required discharge-summary fields."
-                )
-        return repaired
+        # General method to inspect clinical records quality.
+        # No hardcoded fallbacks are used to prevent data fabrication.
+        for patient_name, text in list(records.items()):
+            self._record_is_usable(patient_name, text)
+        return records
 
     def _record_is_usable(self, patient_name: str, text: str) -> bool:
         required_markers = ["diagnosis", "course", "follow", "discharge", "medication"]
@@ -540,11 +457,49 @@ class ClinicalTextParser:
     def _prepare_ocr_image(self, image):
         max_dim = int(os.getenv("LOCAL_OCR_MAX_IMAGE_DIM", "2200"))
         if max(image.size) <= max_dim:
-            return image
+            prepared = image
+        else:
+            prepared = image.copy()
+            prepared.thumbnail((max_dim, max_dim))
+            prepared = prepared.convert("RGB")
+        return self._preprocess_handwritten_image(prepared)
 
-        prepared = image.copy()
-        prepared.thumbnail((max_dim, max_dim))
-        return prepared.convert("RGB")
+    def _preprocess_handwritten_image(self, image):
+        """
+        Applies image processing filters to enhance contrast, sharpness, and readability
+        of handwritten/scanned clinical documents.
+        """
+        try:
+            import cv2
+            import numpy as np
+            
+            # Convert PIL Image to cv2 BGR format
+            open_cv_image = np.array(image.convert("RGB"))
+            open_cv_image = open_cv_image[:, :, ::-1].copy()
+            
+            # Convert to grayscale
+            gray = cv2.cvtColor(open_cv_image, cv2.COLOR_BGR2GRAY)
+            
+            # Contrast Limited Adaptive Histogram Equalization
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            contrast = clahe.apply(gray)
+            
+            # Convert back to PIL
+            return Image.fromarray(cv2.cvtColor(contrast, cv2.COLOR_GRAY2RGB))
+        except Exception as e:
+            print(f"[Ingestion OCR Preprocessing] cv2 CLAHE failed: {e}. Using PIL fallback.")
+            try:
+                from PIL import ImageEnhance
+                # Boost contrast and sharpness via PIL
+                img = image.convert("L")
+                contrast_enhancer = ImageEnhance.Contrast(img)
+                img = contrast_enhancer.enhance(2.0)
+                sharpness_enhancer = ImageEnhance.Sharpness(img)
+                img = sharpness_enhancer.enhance(2.0)
+                return img.convert("RGB")
+            except Exception as pil_err:
+                print(f"[Ingestion OCR Preprocessing] PIL fallback failed: {pil_err}. Returning original.")
+                return image
 
     def _load_configured_tesseract(self):
         try:
@@ -874,11 +829,14 @@ class ClinicalTextParser:
     def _call_vision_ocr(self, image, page_idx: int, cfg: dict) -> str:
         image_b64 = self._image_to_base64_png(image)
         prompt = (
-            "Extract all readable text from this patient medical report image. "
-            "Preserve headings, patient identifiers, dates, lab values, medication names, doses, frequencies, "
-            "diagnoses, impressions, and follow-up instructions. Keep table rows line-by-line. "
-            "Do not summarize and do not add facts that are not visible. "
-            f"Return plain text only for page {page_idx}."
+            "You are a clinical transcription expert. Transcribe all readable text from this patient medical report image.\n"
+            "This document may contain messy, scanned, or handwritten clinical notes, laboratory values, and prescriptions.\n"
+            "INSTRUCTIONS:\n"
+            "1. Transcribe the handwriting as accurately as possible. Pay close attention to numbers, dates, units, and chemical names.\n"
+            "2. Preserve the structural layout, headings, patient identifiers, and medication tables (line-by-line).\n"
+            "3. If a word or number is completely illegible or ambiguous, write '[illegible]' instead of guessing. Never invent clinical details.\n"
+            "4. Transcribe abbreviations (e.g. QD, TID, SOS, PRN, SC, IV) exactly as written.\n\n"
+            f"Return plain text transcription only for page {page_idx}."
         )
 
         if cfg["provider"] == "gemini":
@@ -959,80 +917,24 @@ class ClinicalTextParser:
     def _split_records_by_patient(self, page_texts: List[str], pdf_path: str = "") -> Dict[str, str]:
         records: Dict[str, List[str]] = {}
         
-        filename = os.path.basename(pdf_path).lower() if pdf_path else ""
-        is_patient_2 = "patient 2" in filename or "patient_2" in filename
+        current_name = None
+        for index, page_text in enumerate(page_texts, start=1):
+            if not page_text.strip():
+                continue
+            detected_name = self._detect_patient_name(page_text)
+            
+            if detected_name:
+                current_name = detected_name
+            elif current_name is None:
+                # Try to scan the first page for a patient name candidate
+                candidates = self._extract_name_candidates_from_text(page_text)
+                if candidates:
+                    current_name = candidates[0]
+                else:
+                    # Fallback to filename or "Patient"
+                    current_name = self._clean_name_from_filename(pdf_path)
 
-        if is_patient_2:
-            current_name = None
-            for index, page_text in enumerate(page_texts, start=1):
-                if not page_text.strip():
-                    continue
-                detected_name = self._detect_patient_name(page_text)
-                
-                # Smart baseline mapping for first pages
-                if index == 1 and not detected_name:
-                    detected_name = "Prema J"
-                elif index == 3 and not detected_name:
-                    detected_name = "H D Nagaraja"
-
-                if detected_name:
-                    current_name = detected_name
-                elif current_name is None:
-                    current_name = "Prema J"
-
-                records.setdefault(current_name, []).append(f"[Source page {index}]\n{page_text}")
-        else:
-            # Single-patient PDF mode — scan ALL pages for a name
-            patient_name = ""
-
-            # Pass 1: pattern-based scan (Name: / Patient Name: / etc.) across every page
-            for page_text in page_texts:
-                if not page_text.strip():
-                    continue
-                detected = self._detect_patient_name(page_text)
-                if detected:
-                    patient_name = detected
-                    break
-
-            # Pass 2: capitalized-sequence scan across every page
-            if not patient_name:
-                for page_text in page_texts:
-                    if not page_text.strip():
-                        continue
-                    candidates = self._extract_name_candidates_from_text(page_text)
-                    if candidates:
-                        patient_name = candidates[0]
-                        break
-
-            # Pass 3: first-3-lines scan on FIRST page only (avoid misclassifying body text)
-            if not patient_name:
-                first_non_empty = next((t for t in page_texts if t.strip()), "")
-                if first_non_empty:
-                    lines = [l.strip() for l in first_non_empty.split("\n") if l.strip()]
-                    for line in lines[:3]:
-                        parts = re.split(
-                            r"\s{2,}|\||,|Age|Sex|MRN|IP\s*Number|Pt\s*ID",
-                            line,
-                            flags=re.IGNORECASE,
-                        )
-                        candidate = parts[0].strip()
-                        if self._is_valid_candidate_name(candidate):
-                            patient_name = candidate
-                            break
-
-            # Only as a last resort, derive from the uploaded filename
-            if not patient_name:
-                patient_name = self._clean_name_from_filename(pdf_path)
-                print(f"[Ingestion] No patient name found in extracted text; using filename-derived label: '{patient_name}'")
-            else:
-                print(f"[Ingestion] Patient name detected from extracted data: '{patient_name}'")
-
-            parts = []
-            for index, page_text in enumerate(page_texts, start=1):
-                if page_text.strip():
-                    parts.append(f"[Source page {index}]\n{page_text}")
-            if parts:
-                records[patient_name] = parts
+            records.setdefault(current_name, []).append(f"[Source page {index}]\n{page_text}")
 
         return {name: "\n\n".join(parts).strip() for name, parts in records.items()}
 
@@ -1146,7 +1048,9 @@ class ClinicalTextParser:
                     return "Prema J"
                 if any(x in det_clean for x in ["NAGARA", "HDN", "MAGMA", "NAGANIA", "NAGARAIA", "NAGARAM", "MANAMA"]):
                     return "H D Nagaraja"
-                return detected
+                
+                # General fallback: return cleaned and title-cased name
+                return " ".join(w.capitalize() for w in detected.split() if w)
         return ""
 
 

@@ -4,11 +4,12 @@
 # Extracts structured correction rules from the diff and injects them into the
 # agent's prompt for the next run. Also generates the learning curve chart.
 
+import json
 import Levenshtein
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import List, Dict, Any
-
+from config.settings import get_llm_config
 
 class FeedbackLearningEngine:
     """
@@ -44,48 +45,72 @@ class FeedbackLearningEngine:
     def extract_feedback_rules(self, draft_summary: Any, edited_summary: Any) -> List[str]:
         """
         Compares the agent's draft with the doctor's edits and extracts
-        structured rules to remember. These rules are later injected into
-        the agent's system prompt so it applies them automatically next time.
+        structured rules to remember. Uses the LLM when online to do a generalized
+        rule extraction, and falls back to deterministic check when offline.
         """
-        new_rules = []
-
-        # Check if the doctor appended the verification suffix to the diagnosis
-        if draft_summary.principal_diagnosis != edited_summary.principal_diagnosis:
-            suffix = " [Clinically Verified via Discharge Evaluation Policy]"
-            if (
-                edited_summary.principal_diagnosis.endswith(suffix)
-                and not draft_summary.principal_diagnosis.endswith(suffix)
-            ):
-                rule = (
-                    "For principal_diagnosis: Always append "
-                    "' [Clinically Verified via Discharge Evaluation Policy]' "
-                    "to confirm clinical validation."
+        cfg = get_llm_config()
+        if cfg.get("is_live", False) and cfg.get("provider") != "local_transformers":
+            try:
+                # Prompt the LLM to compare draft vs edited and output style rules
+                prompt = (
+                    "You are a clinical machine learning metadata extractor.\n"
+                    "Compare the original AI discharge draft and the doctor's edited version below.\n"
+                    "Extract the style, format, and clinical prefix/suffix guidelines the doctor consistently applied.\n"
+                    "Guidelines must be written as actionable instructions for future drafts, e.g.:\n"
+                    "- 'For principal_diagnosis: Always append [suffix]'\n"
+                    "- 'For follow_up_instructions: Always prepend [prefix]'\n\n"
+                    "ORIGINAL AI DRAFT:\n"
+                    f"{draft_summary.model_dump_json(indent=2)}\n\n"
+                    "DOCTOR EDITED DRAFT:\n"
+                    f"{edited_summary.model_dump_json(indent=2)}\n\n"
+                    "Return the list of instructions as a raw JSON array of strings (no other text, no backticks):"
                 )
+                
+                res = self._call_llm_api_direct(prompt, cfg)
+                if res["status"] == "SUCCESS":
+                    content = res["content"].strip()
+                    start_idx = content.find('[')
+                    end_idx = content.rfind(']')
+                    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                        rules = json.loads(content[start_idx:end_idx + 1])
+                        new_rules = []
+                        for rule in rules:
+                            if rule not in self.correction_memory:
+                                new_rules.append(rule)
+                                self.correction_memory.append(rule)
+                        if new_rules:
+                            print(f"[Learning Engine] Extracted {len(new_rules)} new dynamic rule(s): {new_rules}")
+                        return new_rules
+            except Exception as e:
+                print(f"[Learning Engine] LLM rule extraction failed: {e}. Falling back to rule-based parser.")
+
+        # Fallback / Offline rule extraction
+        new_rules = []
+        
+        # Check if diagnosis was modified
+        if draft_summary.principal_diagnosis != edited_summary.principal_diagnosis:
+            d_orig = draft_summary.principal_diagnosis
+            d_edit = edited_summary.principal_diagnosis
+            if d_edit.startswith(d_orig) and len(d_edit) > len(d_orig):
+                suffix = d_edit[len(d_orig):]
+                rule = f"For principal_diagnosis: Always append '{suffix}'"
                 if rule not in self.correction_memory:
                     new_rules.append(rule)
                     self.correction_memory.append(rule)
-
-        # Check if the doctor prepended the compliance warning to follow-up instructions
+                    
+        # Check if follow-up was modified
         if draft_summary.follow_up_instructions != edited_summary.follow_up_instructions:
-            prefix = "CRITICAL CLINICAL FOLLOW-UP: Please visit the clinic as scheduled. "
-            if (
-                edited_summary.follow_up_instructions.startswith(prefix)
-                and not draft_summary.follow_up_instructions.startswith(prefix)
-            ):
-                rule = (
-                    "For follow_up_instructions: Always prepend "
-                    "'CRITICAL CLINICAL FOLLOW-UP: Please visit the clinic as scheduled. ' "
-                    "to ensure patient safety compliance."
-                )
+            f_orig = draft_summary.follow_up_instructions
+            f_edit = edited_summary.follow_up_instructions
+            if f_edit.endswith(f_orig) and len(f_edit) > len(f_orig):
+                prefix = f_edit[:-len(f_orig)]
+                rule = f"For follow_up_instructions: Always prepend '{prefix}'"
                 if rule not in self.correction_memory:
                     new_rules.append(rule)
                     self.correction_memory.append(rule)
 
         if new_rules:
-            print(
-                f"[Learning Engine] {len(new_rules)} new correction rule(s) added to memory. "
-                f"Total rules: {len(self.correction_memory)}"
-            )
+            print(f"[Learning Engine] Extracted {len(new_rules)} rule(s) via offline parser.")
         return new_rules
 
     def register_iteration_performance(self, patient_id: str, draft_text: str, edited_text: str):
@@ -114,7 +139,6 @@ class FeedbackLearningEngine:
             return
 
         plt.figure(figsize=(9, 5.5))
-
         colors = ["#1A6FBA", "#0D9488", "#D97706", "#DC2626"]
 
         for idx, (patient_id, distances) in enumerate(self.performance_history.items()):
@@ -148,3 +172,8 @@ class FeedbackLearningEngine:
         plt.savefig(output_image_path, dpi=300)
         plt.close()
         print(f"[Learning Engine] Learning curve saved to: {output_image_path}")
+
+    def _call_llm_api_direct(self, prompt: str, cfg: dict) -> dict:
+        from src.agent_loop import ClinicalAgentLoop
+        agent = ClinicalAgentLoop()
+        return agent._call_llm_api_direct(prompt, cfg)

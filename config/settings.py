@@ -112,7 +112,7 @@ def _local_transformer_config() -> dict:
     return {
         "api_key":    None,
         "base_url":   None,
-        "model_name": os.getenv("LOCAL_TRANSFORMER_MODEL", "google/flan-t5-small"),
+        "model_name": os.getenv("LOCAL_TRANSFORMER_MODEL", "google/flan-t5-base"),
         "provider":   "local_transformers",
         "is_live":    True,
     }

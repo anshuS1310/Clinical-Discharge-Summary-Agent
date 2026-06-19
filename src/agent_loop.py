@@ -7,6 +7,7 @@ import requests
 from typing import List, Dict, Any, Tuple
 from src.models import DischargeSummaryDraft, AgentStepTrace, CompleteExecutionPayload, ClinicalFlag, MedicationItem
 from config.settings import MAX_AGENT_STEPS, API_TIMEOUT, get_llm_config
+from src.agents import ExtractionAgent, SafetyAuditorAgent, ClinicalWriterAgent
 
 warnings.filterwarnings(
     "ignore",
@@ -354,7 +355,7 @@ class ClinicalAgentLoop:
         local_cfg = {
             "api_key": None,
             "base_url": None,
-            "model_name": os.getenv("LOCAL_TRANSFORMER_MODEL", "google/flan-t5-small"),
+            "model_name": os.getenv("LOCAL_TRANSFORMER_MODEL", "google/flan-t5-base"),
             "provider": "local_transformers",
             "is_live": True,
         }
@@ -447,56 +448,99 @@ class ClinicalAgentLoop:
         Dynamically extracts medication tables, pending lab checks, and diagnostic trends.
         """
         action = action.upper()
+        cfg = get_llm_config(cli_api_key=self.cli_api_key)
+        use_llm = cfg.get("is_live", False) and cfg.get("provider") != "local_transformers"
         
         if "MEDICATIONRECONCILIATION" in action:
-            if "Prema" in patient_id or "Prema" in raw_clinical_text:
-                return (
-                    "Admission medications: Outpatient treatment for Thyroid disorder is documented in past history, but specific drug/dose is missing.\n"
-                    "Discharge medications: Raciper 40mg, Emeset 4mg, Oflox TZ, M Strong, Zedott, Entroflora, Meftal Spas, Lopiramide 2mg.\n"
-                    "Discrepancy: Outpatient thyroid medication was omitted at discharge with no documented reason."
+            if use_llm:
+                prompt = (
+                    "You are a clinical medication reconciliation auditor. Compare the patient's admission/pre-admission "
+                    "medications (home medications, history of outpatient drugs) with the discharge medications.\n"
+                    "Analyze:\n"
+                    "1. Outpatient medications omitted at discharge without a documented reason.\n"
+                    "2. New medications added without justification.\n"
+                    "3. Dosage/frequency changes that are unexplained.\n\n"
+                    "PATIENT CLINICAL NOTES:\n"
+                    f"{raw_clinical_text}\n\n"
+                    "Provide a clear, bulleted summary of admission medications, discharge medications, and reconciliation discrepancies."
                 )
-            else:
-                return (
-                    "Admission medications: Outpatient medications are not documented on admission.\n"
-                    "Discharge medications: Inj. Lantus (Insulin Glargine) 10 units SC, Inj. Human Actrapid/Humalog SC.\n"
-                    "Discrepancy: Outpatient medications were not reconciled. Additionally, broad-spectrum IV antibiotic (Meromac) was given in-hospital, but no oral antibiotic is listed at discharge."
-                )
+                res = self._call_llm_api_direct(prompt, cfg)
+                if res["status"] == "SUCCESS":
+                    return res["content"].strip()
+
+            admission_meds = []
+            discharge_meds = []
+            current_section = None
+            for line in raw_clinical_text.split("\n"):
+                line_lower = line.lower()
+                if any(x in line_lower for x in ["discharge", "advice", "plan"]):
+                    current_section = "discharge"
+                elif any(x in line_lower for x in ["admission", "history", "past", "home medication"]):
+                    current_section = "admission"
+                
+                if "tab" in line_lower or "cap" in line_lower or "inj" in line_lower or "syr" in line_lower or "mg" in line_lower or "mcg" in line_lower:
+                    if current_section == "discharge":
+                        discharge_meds.append(line.strip())
+                    elif current_section == "admission":
+                        admission_meds.append(line.strip())
+            
+            adm_str = "; ".join(admission_meds) if admission_meds else "None documented or parsed."
+            dis_str = "; ".join(discharge_meds) if discharge_meds else "None parsed."
+            return (
+                f"Admission medications: {adm_str}\n"
+                f"Discharge medications: {dis_str}\n"
+                "Discrepancy: Outpatient medications reconciliation requires manual clinician review."
+            )
                 
         elif "PENDINGRESULTSCHECK" in action:
-            if "Prema" in patient_id or "Prema" in raw_clinical_text:
-                return "Urine culture and sensitivity test was sent due to pus cells/bacteria in routine analysis; report is still awaited."
-            elif "Nagaraja" in patient_id or "DKA" in raw_clinical_text or "ketoacidosis" in raw_clinical_text.lower():
-                return "Blood culture and urine culture were drawn on 27/02/2026; reports are still awaited."
-            else:
-                pending_hits = re.findall(r"([^.:\n]*(?:awaited|pending|culture)[^.:\n]*)", raw_clinical_text, flags=re.IGNORECASE)
-                if pending_hits:
-                    return "Pending or culture-related source text found: " + "; ".join(hit.strip() for hit in pending_hits[:3])
-                return "No explicit pending result statement was found in the extracted source text."
+            if use_llm:
+                prompt = (
+                    "You are a clinical coordinator. Scan the patient clinical notes for any outstanding, "
+                    "pending, or awaited diagnostic tests, culture reports (e.g. blood/urine cultures), "
+                    "or imaging studies at the time of discharge.\n\n"
+                    "PATIENT CLINICAL NOTES:\n"
+                    f"{raw_clinical_text}\n\n"
+                    "List all pending or awaited results. If none are documented, write 'No pending results found'."
+                )
+                res = self._call_llm_api_direct(prompt, cfg)
+                if res["status"] == "SUCCESS":
+                    return res["content"].strip()
+
+            pending_hits = re.findall(r"([^.:\n]*(?:awaited|pending|culture)[^.:\n]*)", raw_clinical_text, flags=re.IGNORECASE)
+            if pending_hits:
+                return "Pending or culture-related source text found: " + "; ".join(hit.strip() for hit in pending_hits[:3])
+            return "No explicit pending result statement was found in the extracted source text."
                 
         elif "DIAGNOSTICCHECK" in action:
-            if "Prema" in patient_id or "Prema" in raw_clinical_text:
-                return "Serum creatinine was elevated at 1.65 mg/dL on admission, corrected/stabilized to 1.17 mg/dL on repeat check. Sodium was low at 128.00 mmol/L, normalized."
-            elif "Nagaraja" in patient_id or "DKA" in raw_clinical_text or "ketoacidosis" in raw_clinical_text.lower():
-                return "Serum creatinine was monitored: 1.02 mg/dL on 28/02 and 1.04 mg/dL on 01/03, indicating stable renal function."
-            else:
-                lab_hits = re.findall(
-                    r"([^.:\n]*(?:creatinine|sodium|glucose|potassium|urea|hb|wbc)[^.:\n]*)",
-                    raw_clinical_text,
-                    flags=re.IGNORECASE,
+            if use_llm:
+                prompt = (
+                    "You are a clinical diagnostic reviewer. Scan the patient clinical notes for key laboratory "
+                    "values (e.g., serum creatinine, sodium, electrolytes, hemoglobin, WBC) or stability trends "
+                    "during their stay. Specifically look for abnormalities that stabilized, or unresolved lab anomalies.\n\n"
+                    "PATIENT CLINICAL NOTES:\n"
+                    f"{raw_clinical_text}\n\n"
+                    "Provide a concise summary of diagnostic trends."
                 )
-                if lab_hits:
-                    return "Diagnostic/lab evidence found in source text: " + "; ".join(hit.strip() for hit in lab_hits[:4])
-                return "No explicit diagnostic trend was found in the extracted source text."
+                res = self._call_llm_api_direct(prompt, cfg)
+                if res["status"] == "SUCCESS":
+                    return res["content"].strip()
+
+            lab_hits = re.findall(
+                r"([^.:\n]*(?:creatinine|sodium|glucose|potassium|urea|hb|wbc)[^.:\n]*)",
+                raw_clinical_text,
+                flags=re.IGNORECASE,
+            )
+            if lab_hits:
+                return "Diagnostic/lab evidence found in source text: " + "; ".join(hit.strip() for hit in lab_hits[:4])
+            return "No explicit diagnostic trend was found in the extracted source text."
                 
         elif "FLAGCONTRADICTION" in action:
             try:
-                # Resolve category, item, description based on keywords
                 category = "MISSING_DATA"
                 item_involved = "Omission Item"
                 description = inputs
                 action_taken = "Flagged for clinician override"
                 
-                # Check for structured JSON representation inside inputs
                 if "{" in inputs and "}" in inputs:
                     try:
                         start_idx = inputs.find('{')
@@ -509,34 +553,6 @@ class ClinicalAgentLoop:
                     except Exception:
                         pass
                 
-                # Dynamic matching based on inputs string content
-                if "thyroid" in inputs.lower() or "thyroid" in item_involved.lower():
-                    category = "MEDICATION_MISMATCH"
-                    item_involved = "Thyroid Medication"
-                    description = "Patient is on outpatient thyroid treatment, but no thyroid medication is prescribed at discharge or documented as discontinued."
-                    action_taken = "Flagged for clinician reconciliation. Marked omission in medication summary."
-                elif "urine culture" in inputs.lower() or "culture" in inputs.lower():
-                    category = "PENDING_RESULT_WARNING"
-                    item_involved = "Urine Culture and Sensitivity Panel" if ("Prema" in patient_id or "Prema" in raw_clinical_text) else "Blood & Urine Cultures"
-                    description = "Urine culture report is outstanding at time of discharge." if ("Prema" in patient_id or "Prema" in raw_clinical_text) else "Blood and urine culture reports are outstanding at time of discharge."
-                    action_taken = "Marked as pending in final draft. Added tracking instructions."
-                elif "request" in inputs.lower() or "stay back" in inputs.lower():
-                    category = "CONFLICTING_DIAGNOSES"
-                    item_involved = "Discharge at Request"
-                    description = "Patient was advised to stay back for further inpatient management but attenders were unwilling, leading to discharge at request."
-                    action_taken = "Flagged status clearly. Added warnings regarding immediate outpatient review."
-                elif "outpatient" in inputs.lower() or "home medication" in inputs.lower():
-                    category = "MISSING_DATA"
-                    item_involved = "Outpatient Medication List"
-                    description = "Outpatient medications prior to admission are missing and not documented in the medical records."
-                    action_taken = "Flagged for manual clinician review. Alerted in discharge draft."
-                elif "antibiotic" in inputs.lower() or "abx" in inputs.lower() or "meromac" in inputs.lower():
-                    category = "MEDICATION_MISMATCH"
-                    item_involved = "Discharge Antibiotics"
-                    description = "Patient received IV Meromac (meropenem) for suspected pyelonephritis/UTI during stay, but no oral antibiotic is prescribed at discharge to complete the course."
-                    action_taken = "Flagged for clinical override. Notified clinician to confirm if antibiotic course should be completed."
-                
-                # Avoid duplicates
                 if not any(f.item_involved == item_involved for f in self.active_flags):
                     flag = ClinicalFlag(
                         category=category,
@@ -555,207 +571,47 @@ class ClinicalAgentLoop:
         self.execution_history = []
         self.active_flags = []
         
-        # Format the learned compliance rules
-        memory_context = ""
-        if self.feedback_memory:
-            memory_context = "\nCRITICAL CLINICAL RULES LEARNED FROM CLINICIAN EDITS (MUST BE FOLLOWED):\n"
-            for rule in self.feedback_memory:
-                memory_context += f"- {rule}\n"
-                
-        step_number = 1
-        max_steps = MAX_AGENT_STEPS
+        # Instantiate agents
+        extractor = ExtractionAgent(self._call_llm_api_direct)
+        auditor = SafetyAuditorAgent(self._call_llm_api_direct, self._execute_tool)
+        writer = ClinicalWriterAgent(self._call_llm_api_direct)
         
-        print(f"[Agent Loop] Initiating Live ReAct loop using model {cfg['model_name']}...")
+        # Step 1: Extraction Agent
+        print("[Agent Loop] [1/3] Running ExtractionAgent...")
+        draft = extractor.extract(raw_clinical_text, cfg)
+        self.execution_history.append(AgentStepTrace(
+            step_number=1,
+            reasoning="Extraction agent parsed clinical notes and structured all primary fields without fabricating data.",
+            action_chosen="RUN_AGENT: ExtractionAgent",
+            inputs="Patient raw clinical text",
+            result="Extracted intermediate structured draft successfully.",
+            next_decision="run safety audit checks"
+        ))
         
-        while step_number <= max_steps:
-            # Construct execution history text
-            history_text = ""
-            if self.execution_history:
-                history_text = "\nEXECUTION HISTORY SO FAR:\n"
-                for trace in self.execution_history:
-                    history_text += (
-                        f"Step {trace.step_number}:\n"
-                        f"  Reasoning: {trace.reasoning}\n"
-                        f"  Action Chosen: {trace.action_chosen}\n"
-                        f"  Inputs: {trace.inputs}\n"
-                        f"  Result: {trace.result}\n"
-                        f"  Next Decision: {trace.next_decision}\n\n"
-                    )
-            else:
-                history_text = "\nNo steps executed yet.\n"
-                
-            prompt = (
-                f"You are a clinical discharge summary agent running a ReAct (Reasoning and Acting) loop for patient: {patient_id}.\n"
-                f"Your goal is to inspect the patient records, reconcile medications, identify pending labs, check stability metrics, and log safety flags.\n"
-                f"Do not guess or fabricate clinical facts. All omissions/conflicts must be explicitly flagged.\n"
-                f"{memory_context}\n"
-                f"RAW PATIENT NOTES:\n"
-                f"{raw_clinical_text}\n"
-                f"{history_text}\n"
-                f"We are at step {step_number} of a maximum of {max_steps} steps.\n\n"
-                f"Determine the next action. You can call one of the following tools:\n"
-                f"1. CALL_TOOL: MedicationReconciliation (inspects admitting vs discharge medications)\n"
-                f"2. CALL_TOOL: PendingResultsCheck (checks for outstanding diagnostic labs/cultures)\n"
-                f"3. CALL_TOOL: DiagnosticCheck (checks stability metrics like creatinine trends)\n"
-                f"4. CALL_TOOL: FlagContradiction (logs a safety flag; inputs should describe the category, item, and description)\n"
-                f"5. FINAL_DRAFT (stop the loop and transition to compile the final discharge summary)\n\n"
-                f"Output your decision as a raw JSON block matching this exact schema (no other text, no markdown code block backticks):\n"
-                f"{{\n"
-                f"  \"reasoning\": \"Your clinical reasoning for choosing this action\",\n"
-                f"  \"action_chosen\": \"CALL_TOOL: MedicationReconciliation\" | \"CALL_TOOL: PendingResultsCheck\" | \"CALL_TOOL: DiagnosticCheck\" | \"CALL_TOOL: FlagContradiction\" | \"FINAL_DRAFT\",\n"
-                f"  \"inputs\": \"Relevant inputs or parameters for the tool\",\n"
-                f"  \"next_decision\": \"What you plan to focus on after this step\"\n"
-                f"}}"
-            )
-            
-            api_res = self._call_llm_api_direct(prompt, cfg)
-            if api_res["status"] != "SUCCESS":
-                raise Exception(f"Live LLM call failed: {api_res.get('error')}")
-                
-            content = api_res["content"].strip()
-            
-            # Extract JSON block
-            start_idx = content.find('{')
-            end_idx = content.rfind('}')
-            if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
-                raise Exception(f"Failed to locate JSON block in LLM response: {content}")
-            json_str = content[start_idx:end_idx + 1]
-            step_data = json.loads(json_str)
-            
-            reasoning = step_data.get("reasoning", "")
-            action_chosen = step_data.get("action_chosen", "")
-            inputs = step_data.get("inputs", "")
-            next_decision = step_data.get("next_decision", "")
-            
-            # Style the ReAct step output elegantly in the console
-            print("\n  " + ""*78)
-            print(f"   [ReAct Step {step_number}]")
-            print("  " + ""*78)
-            # Wrap reasoning text to fit within console bounds neatly (70 chars per line)
-            wrapped_reasoning = []
-            words = reasoning.split(" ")
-            current_line = ""
-            for w in words:
-                if len(current_line) + len(w) + 1 > 68:
-                    wrapped_reasoning.append(current_line)
-                    current_line = w
-                else:
-                    current_line = f"{current_line} {w}".strip() if current_line else w
-            if current_line:
-                wrapped_reasoning.append(current_line)
-                
-            for idx, line_text in enumerate(wrapped_reasoning):
-                prefix = "   Reasoning: " if idx == 0 else "              "
-                print(f"{prefix}{line_text}")
-            print(f"   Action:    {action_chosen}")
-            print("  " + ""*78 + "\n")
-            
-            if action_chosen == "FINAL_DRAFT":
-                self.execution_history.append(AgentStepTrace(
-                    step_number=step_number,
-                    reasoning=reasoning,
-                    action_chosen=action_chosen,
-                    inputs=inputs,
-                    result="Terminated ReAct loop to compile final discharge summary draft.",
-                    next_decision=next_decision
-                ))
-                break
-                
-            # Execute tool in python
-            result = self._execute_tool(patient_id, raw_clinical_text, action_chosen, str(inputs))
-            
-            self.execution_history.append(AgentStepTrace(
-                step_number=step_number,
-                reasoning=reasoning,
-                action_chosen=action_chosen,
-                inputs=str(inputs),
-                result=result,
-                next_decision=next_decision
-            ))
-            
-            step_number += 1
-            
-        # Compile final draft
-        print("[Agent Loop] Compilation phase: Generating final structured discharge summary draft...")
-        history_text = "\nEXECUTION HISTORY:\n"
-        for trace in self.execution_history:
-            history_text += (
-                f"Step {trace.step_number}:\n"
-                f"  Reasoning: {trace.reasoning}\n"
-                f"  Action Chosen: {trace.action_chosen}\n"
-                f"  Inputs: {trace.inputs}\n"
-                f"  Result: {trace.result}\n"
-                f"  Next Decision: {trace.next_decision}\n\n"
-            )
-            
-        flags_text = ""
-        if self.active_flags:
-            flags_text = "\nACTIVE SAFETY FLAGS LOGGED (MUST BE INCLUDED IN FINAL DRAFT):\n"
-            for flag in self.active_flags:
-                flags_text += f"- Category: {flag.category} | Item: {flag.item_involved} | Description: {flag.description} | Action: {flag.action_taken}\n"
-                
-        compile_prompt = (
-            f"You are a clinical agent compiling the final structured discharge summary for patient: {patient_id}.\n"
-            f"Use the raw patient notes, the execution history of your checks, and the active safety flags to compile a schema-compliant discharge summary draft.\n"
-            f"Strictly adhere to the clinical policy memory. Do not guess facts. Set missing fields to 'missing' or 'pending'.\n"
-            f"{memory_context}\n"
-            f"RAW PATIENT NOTES:\n"
-            f"{raw_clinical_text}\n"
-            f"{history_text}\n"
-            f"{flags_text}\n"
-            f"Return a raw JSON matching the DischargeSummaryDraft schema (no other text, no backticks):\n"
-            f"{{\n"
-            f"  \"patient_name\": \"string\",\n"
-            f"  \"medical_record_number\": \"string\",\n"
-            f"  \"age_and_gender\": \"string\",\n"
-            f"  \"admission_date\": \"string\",\n"
-            f"  \"discharge_date\": \"string\",\n"
-            f"  \"principal_diagnosis\": \"string\",\n"
-            f"  \"secondary_diagnoses\": [\"string\"],\n"
-            f"  \"hospital_course\": \"string\",\n"
-            f"  \"procedures_performed\": [\"string\"],\n"
-            f"  \"discharge_medications\": [\n"
-            f"    {{\n"
-            f"      \"name\": \"string\",\n"
-            f"      \"dosage\": \"string\",\n"
-            f"      \"frequency\": \"string\",\n"
-            f"      \"status\": \"UNCHANGED\" | \"ADDED\" | \"DISCONTINUED\" | \"DOSAGE_CHANGED\",\n"
-            f"      \"reconciliation_note\": \"string\"\n"
-            f"    }}\n"
-            f"  ],\n"
-            f"  \"allergies\": [\"string\"],\n"
-            f"  \"follow_up_instructions\": \"string\",\n"
-            f"  \"pending_results\": [\"string\"],\n"
-            f"  \"discharge_condition\": \"string\",\n"
-            f"  \"clinical_safety_flags\": [\n"
-            f"    {{\n"
-            f"      \"category\": \"MISSING_DATA\" | \"MEDICATION_MISMATCH\" | \"CONFLICTING_DIAGNOSES\" | \"PENDING_RESULT_WARNING\",\n"
-            f"      \"item_involved\": \"string\",\n"
-            f"      \"description\": \"string\",\n"
-            f"      \"action_taken\": \"string\"\n"
-            f"    }}\n"
-            f"  ]\n"
-            f"}}"
-        )
+        # Step 2: Safety Auditor Agent
+        print("[Agent Loop] [2/3] Running SafetyAuditorAgent...")
+        flags, auditor_traces = auditor.audit(patient_id, raw_clinical_text, draft, cfg)
+        self.active_flags.extend(flags)
         
-        api_res = self._call_llm_api_direct(compile_prompt, cfg)
-        if api_res["status"] != "SUCCESS":
-            raise Exception(f"Final LLM compile call failed: {api_res.get('error')}")
+        # Append auditor traces to execution history
+        for trace in auditor_traces:
+            trace.step_number = len(self.execution_history) + 1
+            self.execution_history.append(trace)
             
-        content = api_res["content"].strip()
-        
-        # Extract JSON block
-        start_idx = content.find('{')
-        end_idx = content.rfind('}')
-        if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
-            raise Exception(f"Failed to locate JSON block in LLM compile response: {content}")
-        json_str = content[start_idx:end_idx + 1]
-        
-        final_draft = DischargeSummaryDraft.model_validate_json(json_str)
-        print("[Agent Loop] Compilation completed and validated successfully.")
+        # Step 3: Clinical Writer Agent
+        print("[Agent Loop] [3/3] Running ClinicalWriterAgent...")
+        final_draft = writer.compile(raw_clinical_text, draft, self.active_flags, self.feedback_memory, cfg)
+        self.execution_history.append(AgentStepTrace(
+            step_number=len(self.execution_history) + 1,
+            reasoning="Clinical writer compiled intermediate draft, safety flags, and clinician style correction rules.",
+            action_chosen="RUN_AGENT: ClinicalWriterAgent",
+            inputs="Audited draft, safety flags, and feedback rules",
+            result="Compiled and validated final discharge summary draft.",
+            next_decision="validate_schema_and_export"
+        ))
         
         final_draft = self._mark_ingestion_fallback_if_needed(final_draft, raw_clinical_text)
-
+        
         return CompleteExecutionPayload(
             patient_id=patient_id,
             final_draft=final_draft,
@@ -763,6 +619,7 @@ class ClinicalAgentLoop:
             total_steps_executed=len(self.execution_history),
             loop_status="COMPLETED_SUCCESSFULLY"
         )
+
 
     def _run_extractive_local_loop(self, patient_id: str, raw_clinical_text: str) -> CompleteExecutionPayload:
         source_text = self._normalize_ocr_text(re.sub(r"\[Source page \d+\]\s*", "", raw_clinical_text))
@@ -1352,7 +1209,7 @@ class ClinicalAgentLoop:
         The model assists with concise wording; extraction and safety flags remain
         deterministic so the system does not depend on a tiny model to discover facts.
         """
-        model_name = cfg.get("model_name") or "google/flan-t5-small"
+        model_name = cfg.get("model_name") or "google/flan-t5-base"
         ingestion_fallback_used = "INGESTION FALLBACK" in (raw_clinical_text or "")
         has_extracted_source = bool(raw_clinical_text and len(raw_clinical_text.strip()) > 80 and not ingestion_fallback_used)
 
@@ -1412,287 +1269,3 @@ class ClinicalAgentLoop:
         payload.total_steps_executed = len(payload.execution_trace)
         return payload
 
-    def _run_simulated_loop(self, patient_id: str, raw_clinical_text: str = "") -> CompleteExecutionPayload:
-        self.execution_history = []
-        self.active_flags = []
-
-        is_demo_patient = "Prema" in patient_id or "H D Nagaraja" in patient_id or patient_id in {"Patient_1", "Patient_2"}
-        if not is_demo_patient and raw_clinical_text:
-            return self._run_extractive_local_loop(patient_id, raw_clinical_text)
-        
-        # Check if doctor memory requires specific formatting adjustments
-        has_diagnosis_policy = False
-        has_follow_up_policy = False
-        
-        for rule in self.feedback_memory:
-            if "verified" in rule.lower() or "policy" in rule.lower():
-                has_diagnosis_policy = True
-            if "follow-up" in rule.lower() or "critical" in rule.lower():
-                has_follow_up_policy = True
-
-        if "Prema" in patient_id or patient_id == "Patient_1":
-            # PREMA J AGENT STEPS
-            
-            # Step 1: Medication Reconciliation
-            self.execution_history.append(AgentStepTrace(
-                step_number=1,
-                reasoning="Ingested source notes for patient Prema J. I need to run a medication reconciliation to compare admission vs discharge medications.",
-                action_chosen="CALL_TOOL: MedicationReconciliation",
-                inputs="Patient raw record - Past history & Discharge advice",
-                result=(
-                    "Admission medications: Outpatient treatment for Thyroid disorder is documented in past history, but specific drug/dose is missing.\n"
-                    "Discharge medications: Raciper 40mg, Emeset 4mg, Oflox TZ, M Strong, Zedott, Entroflora, Meftal Spas, Lopiramide 2mg.\n"
-                    "Discrepancy: Outpatient thyroid medication was omitted at discharge with no documented reason."
-                ),
-                next_decision="escalate_mismatch"
-            ))
-
-            # Step 2: Medication mismatch flag
-            flag_med = ClinicalFlag(
-                category="MEDICATION_MISMATCH",
-                item_involved="Thyroid Medication",
-                description="Patient is on outpatient thyroid treatment, but no thyroid medication is prescribed at discharge or documented as discontinued.",
-                action_taken="Flagged for clinician reconciliation. Marked omission in medication summary."
-            )
-            self.active_flags.append(flag_med)
-            self.execution_history.append(AgentStepTrace(
-                step_number=2,
-                reasoning="The outpatient thyroid medication was omitted without documented reasoning. I must escalate this as a safety concern.",
-                action_chosen="CALL_TOOL: FlagContradiction",
-                inputs="Omission of Thyroid Medication",
-                result="Successfully registered MEDICATION_MISMATCH safety flag.",
-                next_decision="check_pending_labs"
-            ))
-
-            # Step 3: Pending labs
-            self.execution_history.append(AgentStepTrace(
-                step_number=3,
-                reasoning="I need to check for any pending laboratory or diagnostic test reports in the patient's record.",
-                action_chosen="CALL_TOOL: PendingResultsCheck",
-                inputs="Patient lab details & hospital course",
-                result="Urine culture and sensitivity test was sent due to pus cells/bacteria in routine analysis; report is still awaited.",
-                next_decision="escalate_pending_results"
-            ))
-
-            # Step 4: Pending results flag
-            flag_labs = ClinicalFlag(
-                category="PENDING_RESULT_WARNING",
-                item_involved="Urine Culture and Sensitivity Panel",
-                description="Urine culture and sensitivity report is outstanding at time of discharge.",
-                action_taken="Marked as pending in final draft. Added strict outpatient tracking instructions."
-            )
-            self.active_flags.append(flag_labs)
-            self.execution_history.append(AgentStepTrace(
-                step_number=4,
-                reasoning="A urine culture was sent but is not yet finalized. I must mark this pending to prevent clinician oversight.",
-                action_chosen="CALL_TOOL: FlagContradiction",
-                inputs="Outstanding Urine Culture",
-                result="Successfully registered PENDING_RESULT_WARNING safety flag.",
-                next_decision="check_conflicting_diagnoses"
-            ))
-
-            # Step 5: Conflict check
-            flag_discharge = ClinicalFlag(
-                category="CONFLICTING_DIAGNOSES",
-                item_involved="Discharge at Request",
-                description="Patient was advised to stay back for further inpatient management but attenders were unwilling, leading to discharge at request.",
-                action_taken="Flagged status clearly. Added warnings regarding immediate outpatient review."
-            )
-            self.active_flags.append(flag_discharge)
-            self.execution_history.append(AgentStepTrace(
-                step_number=5,
-                reasoning="The records note that the patient was advised to stay back but attender refused. I will flag this conflict between clinical advice and patient disposition.",
-                action_chosen="CALL_TOOL: FlagContradiction",
-                inputs="Discharge at Request vs Stay Back Advice",
-                result="Successfully registered CONFLICTING_DIAGNOSES / disposition flag.",
-                next_decision="finalize_draft"
-            ))
-
-            # Formulate medications
-            meds = [
-                MedicationItem(name="TAB. RACIPER", dosage="40MG", frequency="1-0-0", status="ADDED", reconciliation_note="Added for gastric protection (PPI)."),
-                MedicationItem(name="TAB. EMESET", dosage="4MG", frequency="1-1-1", status="ADDED", reconciliation_note="Added for antiemetic control."),
-                MedicationItem(name="TAB. OFLOX TZ", dosage="undocumented", frequency="1-0-1", status="ADDED", reconciliation_note="Added for Urinary Tract Infection (antibiotic)."),
-                MedicationItem(name="TAB M STRONG", dosage="undocumented", frequency="1-0-0", status="ADDED", reconciliation_note="Nutritional multivitamin supplement."),
-                MedicationItem(name="TAB. ZEDOTT", dosage="undocumented", frequency="1-1-1", status="ADDED", reconciliation_note="Added for anti-diarrheal support."),
-                MedicationItem(name="TAB. ENTROFLORA", dosage="undocumented", frequency="1-0-1", status="ADDED", reconciliation_note="Probiotic supplement."),
-                MedicationItem(name="TAB. MEFTAL SPAS", dosage="undocumented", frequency="1 TAB SOS", status="ADDED", reconciliation_note="Antispasmodic for abdominal pain (As needed)."),
-                MedicationItem(name="TAB. LOPIRAMIDE", dosage="2MG", frequency="1-0-1", status="ADDED", reconciliation_note="Anti-motility agent for severe loose stools.")
-            ]
-
-            principal_diag = "ACUTE GASTROENTERITIS WITH DEHYDRATION"
-            if has_diagnosis_policy:
-                principal_diag += " [Clinically Verified via Discharge Evaluation Policy]"
-
-            follow_up = "Urine culture and sensitivity sent- report awaited. Review immediately in case of fever, loose stools, vomiting, fatigue. Review on 09.03.2026 with CBC."
-            if has_follow_up_policy:
-                follow_up = "CRITICAL CLINICAL FOLLOW-UP: Please visit the clinic as scheduled. " + follow_up
-
-            final_draft = DischargeSummaryDraft(
-                patient_name="Prema J",
-                medical_record_number="SSS32561",
-                age_and_gender="30 Years / Female",
-                admission_date="24/02/2026 12:38 PM",
-                discharge_date="26/02/2026 02:00 PM",
-                principal_diagnosis=principal_diag,
-                secondary_diagnoses=["URINARY TRACT INFECTION", "Thyroid disorder (on treatment)"],
-                hospital_course=(
-                    "Patient presented with multiple episodes of loose stools, vomiting, fatigue, and fever. "
-                    "Initial investigations showed elevated creatinine (1.65 mg/dL) and hyponatremia (sodium 128.00 mmol/L). "
-                    "Treated with IV fluids, antibiotics, PPIs, and antiemetics. USG abdomen and pelvis showed Grade-I fatty liver "
-                    "and mild ascending colon edema. Creatinine corrected to 1.17 mg/dL on repeat check. Electrolytes stabilized. "
-                    "Discharged at request due to attender unwillingness to stay back."
-                ),
-                procedures_performed=["USG Abdomen and Pelvis"],
-                discharge_medications=meds,
-                allergies=["Not known"],
-                follow_up_instructions=follow_up,
-                pending_results=["Urine culture and sensitivity report awaited"],
-                discharge_condition="Hemodynamically stable (Discharged at Request)",
-                clinical_safety_flags=self.active_flags
-            )
-
-        else:
-            # H D NAGARAJA AGENT STEPS (Patient 2)
-            
-            # Step 1: Medication Reconciliation
-            self.execution_history.append(AgentStepTrace(
-                step_number=1,
-                reasoning="Ingested source notes for patient H D Nagaraja. I need to run a medication reconciliation to compare admission vs discharge medications.",
-                action_chosen="CALL_TOOL: MedicationReconciliation",
-                inputs="Patient raw record - Past history & Discharge advice",
-                result=(
-                    "Admission medications: Outpatient medications are not documented on admission.\n"
-                    "Discharge medications: Inj. Lantus 10 units SC, Inj. Human Actrapid/Humalog SC.\n"
-                    "Discrepancy: Outpatient medications were not reconciled. Additionally, broad-spectrum IV antibiotic (Meromac) was given in-hospital, but no oral antibiotic is listed at discharge."
-                ),
-                next_decision="escalate_missing_data"
-            ))
-
-            # Step 2: Missing data flag
-            flag_missing = ClinicalFlag(
-                category="MISSING_DATA",
-                item_involved="Outpatient Medication List",
-                description="Outpatient medications prior to admission are missing and not documented in the medical records.",
-                action_taken="Flagged for manual clinician review. Alerted in discharge draft."
-            )
-            self.active_flags.append(flag_missing)
-            self.execution_history.append(AgentStepTrace(
-                step_number=2,
-                reasoning="The admission outpatient medication history is missing. I must escalate this to ensure home medications are properly resumed.",
-                action_chosen="CALL_TOOL: FlagContradiction",
-                inputs="Omission of Outpatient Medication History",
-                result="Successfully registered MISSING_DATA safety flag.",
-                next_decision="check_antibiotic_discrepancy"
-            ))
-
-            # Step 3: Antibiotic omission flag
-            flag_abx = ClinicalFlag(
-                category="MEDICATION_MISMATCH",
-                item_involved="Discharge Antibiotics",
-                description="Patient received IV Meromac (meropenem) for suspected pyelonephritis/UTI during stay, but no oral antibiotic is prescribed at discharge to complete the course.",
-                action_taken="Flagged for clinical override. Notified clinician to confirm if antibiotic course should be completed."
-            )
-            self.active_flags.append(flag_abx)
-            self.execution_history.append(AgentStepTrace(
-                step_number=3,
-                reasoning="The patient was on broad-spectrum IV antibiotics for suspected pyelonephritis but is discharged without oral antibiotics. I must flag this medication discrepancy.",
-                action_chosen="CALL_TOOL: FlagContradiction",
-                inputs="Omission of Discharge Antibiotic",
-                result="Successfully registered MEDICATION_MISMATCH safety flag.",
-                next_decision="check_pending_labs"
-            ))
-
-            # Step 4: Pending labs
-            self.execution_history.append(AgentStepTrace(
-                step_number=4,
-                reasoning="I need to check for any pending laboratory or culture reports in the patient's records.",
-                action_chosen="CALL_TOOL: PendingResultsCheck",
-                inputs="Patient lab details & hospital course",
-                result="Blood culture and urine culture were drawn on 27/02/2026; reports are still awaited.",
-                next_decision="escalate_pending_results"
-            ))
-
-            # Step 5: Pending results flag
-            flag_labs = ClinicalFlag(
-                category="PENDING_RESULT_WARNING",
-                item_involved="Blood & Urine Cultures",
-                description="Blood and urine culture reports are outstanding at time of discharge.",
-                action_taken="Marked as pending in final draft. Added instructions to review reports once available."
-            )
-            self.active_flags.append(flag_labs)
-            self.execution_history.append(AgentStepTrace(
-                step_number=5,
-                reasoning="The blood and urine cultures are pending. I must mark this pending to prevent clinician oversight.",
-                action_chosen="CALL_TOOL: FlagContradiction",
-                inputs="Outstanding Cultures",
-                result="Successfully registered PENDING_RESULT_WARNING safety flag.",
-                next_decision="check_bulky_kidneys"
-            ))
-
-            # Step 6: Bulky Kidneys / Creatinine check
-            self.execution_history.append(AgentStepTrace(
-                step_number=6,
-                reasoning="The USG report showed bulky kidneys suggesting pyelonephritis. I need to verify that serum creatinine was monitored and remained stable.",
-                action_chosen="CALL_TOOL: DiagnosticCheck",
-                inputs="Serum Creatinine records",
-                result="Serum creatinine was monitored: 1.02 mg/dL on 28/02 and 1.04 mg/dL on 01/03, indicating stable renal function.",
-                next_decision="finalize_draft"
-            ))
-
-            meds = [
-                MedicationItem(name="Inj. Lantus (Insulin Glargine)", dosage="10 units", frequency="SC at bedtime (10 PM)", status="ADDED", reconciliation_note="Long-acting insulin for glycemic control."),
-                MedicationItem(name="Inj. Human Actrapid / Humalog", dosage="as per blood glucose", frequency="SC before meals", status="ADDED", reconciliation_note="Rapid-acting insulin for glycemic control.")
-            ]
-
-            principal_diag = "DIABETIC KETOACIDOSIS"
-            if has_diagnosis_policy:
-                principal_diag += " [Clinically Verified via Discharge Evaluation Policy]"
-
-            follow_up = "Review with pending blood culture and urine culture reports once available. Review immediately in case of fever, chills, vomiting, or abdominal pain."
-            if has_follow_up_policy:
-                follow_up = "CRITICAL CLINICAL FOLLOW-UP: Please visit the clinic as scheduled. " + follow_up
-
-            final_draft = DischargeSummaryDraft(
-                patient_name="H D Nagaraja",
-                medical_record_number="SSS32770",
-                age_and_gender="45 Years / Male",
-                admission_date="26/02/2026 07:22 PM",
-                discharge_date="02/03/2026",
-                principal_diagnosis=principal_diag,
-                secondary_diagnoses=[
-                    "Type-II Diabetes Mellitus",
-                    "Mild hepatomegaly with grade I fatty infiltration",
-                    "Cholelithiasis without cholecystitis",
-                    "Mildly bulky bilateral kidneys (suspected pyelonephritis)",
-                    "Minimal ascites",
-                    "Minimal right pleural effusion with underlying subsegmental lung consolidation"
-                ],
-                hospital_course=(
-                    "Patient presented on 26-02-2026 with Diabetic Ketoacidosis (DKA), blood glucose 443 mg/dL, and RR 22/min. "
-                    "Emergency management included IV fluids (NS/RL at 150 ml/hr), insulin infusion (Inj. Human Actrapid), "
-                    "IV pantoprazole, and IV antiemetics. Sudden desaturation in ER corrected with O2 mask. Foley's catheterized. "
-                    "Transitioned to subcutaneous insulin (Inj. Lantus 10 units SC at bedtime and Humalog SC before meals). "
-                    "Experienced a fever spike (102 F) and chills on 27/02, treated with Inj. Tramadol and Inj. Paracetamol (PCT) 1gm. "
-                    "IV Meromac 1gm (meropenem) was started for suspected pyelonephritis. Foley's catheter removed on 01-03-2026. "
-                    "Stable and tolerating soft diet by 02-03-2026."
-                ),
-                procedures_performed=["IV Cannulation", "Foley's Catheterisation", "USG Abdomen and Pelvis", "2D Echocardiogram", "ECG"],
-                discharge_medications=meds,
-                allergies=["Not known"],
-                follow_up_instructions=follow_up,
-                pending_results=["Blood culture report awaited", "Urine culture report awaited"],
-                discharge_condition="Hemodynamically stable",
-                clinical_safety_flags=self.active_flags
-            )
-
-        final_draft = self._mark_hardcoded_simulator_used(final_draft)
-        final_draft = self._mark_ingestion_fallback_if_needed(final_draft, raw_clinical_text)
-
-        return CompleteExecutionPayload(
-            patient_id=patient_id,
-            final_draft=final_draft,
-            execution_trace=self.execution_history,
-            total_steps_executed=len(self.execution_history),
-            loop_status="COMPLETED_SUCCESSFULLY"
-        )
