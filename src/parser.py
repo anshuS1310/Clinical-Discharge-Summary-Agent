@@ -37,6 +37,40 @@ class ClinicalTextParser:
     medical-report text from those images, then splits records into patient
     profiles from detected identifiers.
     """
+    _FORBIDDEN_NAME_WORDS = {
+        "STAFF", "DOCTOR", "CONSULTANT", "PHYSICIAN", "INCHARGE", "CHECKED", 
+        "DATE", "TIME", "REMARKS", "ARRIVAL", "RESPONSE", "ORDER", "EMERGENCY", 
+        "REGISTRATION", "HOSPITAL", "CLINIC", "WARD", "BED", "REFER", "SIGNATURE",
+        "CROSS", "CHECK", "RESUME", "CV", "EDUCATION", "EXPERIENCE", "PROJECT", 
+        "PROJECTS", "SKILLS", "SUMMARY", "PROFILE", "CONTACT", "EMAIL", "PHONE", 
+        "MOBILE", "ADDRESS", "LINKEDIN", "GITHUB", "WEBSITE", "INTERESTS", 
+        "LANGUAGES", "CERTIFICATIONS", "AWARDS", "PUBLICATIONS", "REFERENCES",
+        "UNIVERSITY", "COLLEGE", "SCHOOL", "DEGREE", "BACHELOR", "MASTER", "PHD",
+        "CURRICULUM", "VITAE", "PATIENT", "NAME", "DETAILS", "DEPARTMENT", "MEDICINE",
+        "ADMISSION", "DISCHARGE", "GENDER", "MALE", "FEMALE", "AGE", "YEARS", "MONTHS",
+        "DIAGNOSIS", "HISTORY", "COURSE", "ADVICE", "FOLLOW", "CANDIDATE", "MEDICAL",
+        "RECORD", "RECORDS", "REPORT", "REPORTS", "CONSULTATION", "DISCLOSURE",
+        "UNAUTHORISED", "CONTINUES", "CARDIOVASCULAR", "STANDPOINT", "CLINICAL",
+        "NOTE", "NOTES", "CHART", "CHARTS", "INFORMATION", "INFO", "LAB", "LABS",
+        "LABORATORY", "TEST", "TESTS", "RESULT", "RESULTS", "INVESTIGATION",
+        "INVESTIGATIONS", "DIAGNOSES", "TREATMENT", "PLAN", "MEDICATION", "MEDICATIONS",
+        "DRUG", "DRUGS", "PRESCRIPTION", "PRESCRIPTIONS", "PRE-ADMISSION", "HOME",
+        "OUTPATIENT", "INPATIENT", "CHIEF", "COMPLAINT", "COMPLAINTS", "PHYSICAL",
+        "EXAMINATION", "SYSTEM", "SYSTEMS", "REVIEW", "VITALS", "PARAMETERS",
+        "STABLE", "CONDITION", "FOLLOW-UP", "INSTRUCTION", "INSTRUCTIONS", "BILL",
+        "BILLING", "FINANCIAL", "INSURANCE", "CLEARANCE", "TARIFF", "ROOM", "COPY",
+        "CHECKLIST", "VISITOR", "PASS", "OFFICE", "COUNSELING"
+    }
+
+    _INVALID_PATIENT_NAMES = {
+        "NAME", "PATIENT", "PATIENT NAME", "PT NAME", "FULL NAME", "DETAILS", 
+        "CHECK LIST", "I M", "OF THE", "IS REQUIRED", "NOT AVAILABLE", "UNKNOWN",
+        "MEDICAL RECORD", "MEDICAL RECORDS", "CONSULTATION HISTORY", "ADMISSION RECORDS",
+        "UNAUTHORISED DISCLOSURE", "DISCHARGE SUMMARY", "DISCHARGE NOTE", "ROOM TARIFF",
+        "BILLING STATEMENT", "VISITOR PASS", "FINANCIAL COUNSELING", "INSURANCE CLEARANCE",
+        "CHECKLIST FOR DISCHARGE CLEARANCE"
+    }
+
     _local_ocr_processor = None
     _local_ocr_model = None
     _local_ocr_model_name = None
@@ -944,32 +978,19 @@ class ClinicalTextParser:
         matches = re.findall(pattern, text)
         
         candidates = []
-        blacklist = [
-            "STAFF", "DOCTOR", "CONSULTANT", "PHYSICIAN", "INCHARGE", "CHECKED", 
-            "DATE", "TIME", "REMARKS", "ARRIVAL", "RESPONSE", "ORDER", "EMERGENCY", 
-            "REGISTRATION", "HOSPITAL", "CLINIC", "WARD", "BED", "REFER", "SIGNATURE",
-            "CROSS", "CHECK", "RESUME", "CV", "EDUCATION", "EXPERIENCE", "PROJECT", 
-            "PROJECTS", "SKILLS", "SUMMARY", "PROFILE", "CONTACT", "EMAIL", "PHONE", 
-            "MOBILE", "ADDRESS", "LINKEDIN", "GITHUB", "WEBSITE", "INTERESTS", 
-            "LANGUAGES", "CERTIFICATIONS", "AWARDS", "PUBLICATIONS", "REFERENCES",
-            "UNIVERSITY", "COLLEGE", "SCHOOL", "DEGREE", "BACHELOR", "MASTER", "PHD",
-            "CURRICULUM", "VITAE", "PATIENT", "NAME", "DETAILS", "DEPARTMENT", "MEDICINE",
-            "ADMISSION", "DISCHARGE", "GENDER", "MALE", "FEMALE", "AGE", "YEARS", "MONTHS",
-            "DIAGNOSIS", "HISTORY", "COURSE", "ADVICE", "FOLLOW", "CANDIDATE"
-        ]
-        
         for match in matches:
             words = [w.strip(" .:-") for w in match.split() if w.strip(" .:-")]
             cleaned_words = []
             for w in words:
                 w_upper = w.upper()
-                if w_upper not in blacklist and not any(bl == w_upper for bl in blacklist):
+                if w_upper not in self._FORBIDDEN_NAME_WORDS:
                     cleaned_words.append(w)
             
             if 2 <= len(cleaned_words) <= 3:
                 candidate = " ".join(cleaned_words)
                 if re.fullmatch(r"[A-Za-z][A-Za-z .]{1,59}", candidate):
-                    candidates.append(candidate)
+                    if candidate.upper() not in self._INVALID_PATIENT_NAMES:
+                        candidates.append(candidate)
                     
         return candidates
 
@@ -982,64 +1003,56 @@ class ClinicalTextParser:
         if not re.fullmatch(r"[A-Za-z][A-Za-z .]{1,59}", clean):
             return False
         
-        blacklist = [
-            "STAFF", "DOCTOR", "CONSULTANT", "PHYSICIAN", "INCHARGE", "CHECKED", 
-            "DATE", "TIME", "REMARKS", "ARRIVAL", "RESPONSE", "ORDER", "EMERGENCY", 
-            "REGISTRATION", "HOSPITAL", "CLINIC", "WARD", "BED", "REFER", "SIGNATURE",
-            "CROSS", "CHECK", "RESUME", "CV", "EDUCATION", "EXPERIENCE", "PROJECT", 
-            "PROJECTS", "SKILLS", "SUMMARY", "PROFILE", "CONTACT", "EMAIL", "PHONE", 
-            "MOBILE", "ADDRESS", "LINKEDIN", "GITHUB", "WEBSITE", "INTERESTS", 
-            "LANGUAGES", "CERTIFICATIONS", "AWARDS", "PUBLICATIONS", "REFERENCES",
-            "UNIVERSITY", "COLLEGE", "SCHOOL", "DEGREE", "BACHELOR", "MASTER", "PHD",
-            "CURRICULUM", "VITAE", "CANDIDATE"
-        ]
-        invalid_names = [
-            "NAME", "PATIENT", "PATIENT NAME", "PT NAME", "FULL NAME", "DETAILS", 
-            "CHECK LIST", "I M", "OF THE", "IS REQUIRED", "NOT AVAILABLE", "UNKNOWN"
-        ]
-        
-        if det_upper in invalid_names:
+        if det_upper in self._INVALID_PATIENT_NAMES:
             return False
-        if any(word in det_upper for word in blacklist):
+        words = [w.strip(" .:-") for w in det_upper.split() if w.strip(" .:-")]
+        if any(word in self._FORBIDDEN_NAME_WORDS for word in words):
             return False
         return True
 
     def _detect_patient_name(self, text: str) -> str:
         patterns = [
-            r"(?:Patient\s*Name|Pt\.?\s*Name|Patient\s*Full\s*Name|Full\s*Name|Candidate\s*Name|Name\s*of\s*Patient|Name\s*of\s*Candidate|Patient|Candidate)\s*[:\-]?\s*([A-Za-z .]{2,60})",
-            r"Name\s*[:\-]?\s*([A-Za-z .]{2,60})",
-        ]
-        blacklist = [
-            "STAFF", "DOCTOR", "CONSULTANT", "PHYSICIAN", "INCHARGE", "CHECKED", 
-            "DATE", "TIME", "REMARKS", "ARRIVAL", "RESPONSE", "ORDER", "EMERGENCY", 
-            "REGISTRATION", "HOSPITAL", "CLINIC", "WARD", "BED", "REFER", "SIGNATURE",
-            "CROSS", "CHECK", "RESUME", "CV", "EDUCATION", "EXPERIENCE", "PROJECT", 
-            "PROJECTS", "SKILLS", "SUMMARY", "PROFILE", "CONTACT", "EMAIL", "PHONE", 
-            "MOBILE", "ADDRESS", "LINKEDIN", "GITHUB", "WEBSITE", "INTERESTS", 
-            "LANGUAGES", "CERTIFICATIONS", "AWARDS", "PUBLICATIONS", "REFERENCES",
-            "UNIVERSITY", "COLLEGE", "SCHOOL", "DEGREE", "BACHELOR", "MASTER", "PHD",
-            "CURRICULUM", "VITAE"
-        ]
-        invalid_names = [
-            "NAME", "PATIENT", "PATIENT NAME", "PT NAME", "FULL NAME", "DETAILS", 
-            "CHECK LIST", "I M", "OF THE", "IS REQUIRED", "NOT AVAILABLE", "UNKNOWN"
+            # Highly specific headers (can have optional separators)
+            r"(?:Patient\s*Name|Pt\.?\s*Name|Patient\s*Full\s*Name|Full\s*Name|Candidate\s*Name|Name\s*of\s*Patient|Name\s*of\s*Candidate)\s*[:\-\s]?\s*([A-Za-z .]{2,60})",
+            # Generic headers (MUST have a colon, hyphen, equal, pipe, or multiple spaces)
+            r"(?:Patient|Name|Candidate|Pt\.?)\s*[:\-\|]\s*([A-Za-z .]{2,60})",
+            # Generic headers followed by a newline and then the name
+            r"(?:Patient\s*Name|Pt\.?\s*Name|Patient\s*Full\s*Name|Full\s*Name|Patient|Pt\.?|Name)\s*[:\-\|]?\s*\n\s*([A-Za-z .]{2,60})",
         ]
 
         for pattern in patterns:
-            match = re.search(pattern, text, flags=re.IGNORECASE)
-            if match:
+            for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+                # Context Check: Find the line containing the match
+                start_pos = match.start()
+                line_start = text.rfind('\n', 0, start_pos) + 1
+                line_end = text.find('\n', start_pos)
+                if line_end == -1:
+                    line_end = len(text)
+                line_text = text[line_start:line_end].lower()
+
+                # Filter out doctor, staff, hospital, or institutional lines
+                context_blacklist = [
+                    "doctor", "dr.", "dr ", "physician", "consultant", "referring", "ref.", 
+                    "nurse", "staff", "attending", "hospital", "clinic", "department", 
+                    "office", "medicity", "admission note", "clearance", "tariff", "billing",
+                    "discharge summary", "discharge checklist", "history"
+                ]
+                if any(kw in line_text for kw in context_blacklist):
+                    continue
+
                 name = re.split(
                     r"\s{2,}|\||,|Age|Sex|MRN|IP\s*Number|Pt\s*ID",
                     match.group(1),
                     flags=re.IGNORECASE,
                 )[0]
                 detected = " ".join(name.strip(" .:-").split())
-                
-                # Check constraints
                 det_upper = detected.upper()
-                if len(detected) < 3 or det_upper in invalid_names:
+
+                # Validate constraints
+                if len(detected) < 3 or det_upper in self._INVALID_PATIENT_NAMES:
                     continue
-                if any(word in det_upper for word in blacklist):
+                words = [w.strip(" .:-") for w in det_upper.split() if w.strip(" .:-")]
+                if any(w in self._FORBIDDEN_NAME_WORDS for w in words):
                     continue
 
                 # Normalize noisy OCR spelling variations of the two patients
@@ -1048,7 +1061,7 @@ class ClinicalTextParser:
                     return "Prema J"
                 if any(x in det_clean for x in ["NAGARA", "HDN", "MAGMA", "NAGANIA", "NAGARAIA", "NAGARAM", "MANAMA"]):
                     return "H D Nagaraja"
-                
+
                 # General fallback: return cleaned and title-cased name
                 return " ".join(w.capitalize() for w in detected.split() if w)
         return ""

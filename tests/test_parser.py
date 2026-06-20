@@ -42,6 +42,20 @@ class TestClinicalTextParser(unittest.TestCase):
         text3 = "Patient Name: STAFF NURSE | Bed: 302"
         self.assertEqual(self.parser._detect_patient_name(text3), "")
 
+        # Administrative/clinical headings should be rejected
+        self.assertEqual(self.parser._detect_patient_name("PATIENT MEDICAL RECORDS"), "")
+        self.assertEqual(self.parser._detect_patient_name("PATIENT CONSULTATION HISTORY"), "")
+        self.assertEqual(self.parser._detect_patient_name("PATIENT ADMISSION RECORDS"), "")
+        self.assertEqual(self.parser._detect_patient_name("PATIENT UNAUTHORISED DISCLOSURE"), "")
+
+        # Doctor/staff designations should be rejected
+        self.assertEqual(self.parser._detect_patient_name("Physician Name: Dr. R. Malhotra"), "")
+        self.assertEqual(self.parser._detect_patient_name("Referring Consultant: Dr. Kapoor"), "")
+
+        # Real patient designations should be accepted
+        self.assertEqual(self.parser._detect_patient_name("PATIENT: Prema J"), "Prema J")
+        self.assertEqual(self.parser._detect_patient_name("Patient Name: H D Nagaraja"), "H D Nagaraja")
+
     def test_split_records_by_patient(self):
         page_texts = [
             "Patient Name: John Doe\nAdmission Note...",
