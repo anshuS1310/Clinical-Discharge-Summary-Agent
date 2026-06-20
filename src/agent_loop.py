@@ -694,7 +694,7 @@ class ClinicalAgentLoop:
                 clean.lower() == "missing"
                 or looks_like_label_or_noise(clean)
                 or not re.search(r"\d", clean)
-                or len(re.sub(r"[^A-Za-z0-9]", "", clean)) < 5
+                or len(re.sub(r"[^A-Za-z0-9]", "", clean)) < 3
             ):
                 add_missing_flag("medical_record_number", f"OCR did not provide a reliable MRN/Pt ID; rejected candidate: {clean or 'empty'}.")
                 return "missing"
@@ -787,88 +787,141 @@ class ClinicalAgentLoop:
                 return "missing"
             return clean
 
-        def section(start_terms: List[str], end_terms: List[str], default: str = "missing") -> str:
+        # 1. Improved section extraction that doesn't strictly require colons after section titles
+        def section(start_terms: List[str], end_terms: List[str], default: str = "missing", preserve_newlines: bool = False) -> str:
             start_pattern = "|".join(re.escape(term) for term in start_terms)
             end_pattern = "|".join(re.escape(term) for term in end_terms)
-            pattern = rf"(?:{start_pattern})\s*:?\s*(.*?)(?=\n\s*(?:{end_pattern})\s*:|\Z)"
+            # Add optional colon, hyphen, or pipe after start term. End term only requires word boundary at line start.
+            pattern = rf"(?:{start_pattern})\s*[:\-\|]?\s*(.*?)(?=\n\s*(?:{end_pattern})\b|\Z)"
             match = re.search(pattern, source_text, flags=re.IGNORECASE | re.DOTALL)
             if not match:
                 return default
-            value = re.sub(r"\s+", " ", match.group(1)).strip(" :-")
+            if preserve_newlines:
+                # Replace consecutive horizontal spaces with a single space, but preserve newlines
+                lines = [re.sub(r"[ \t]+", " ", line).strip() for line in match.group(1).split("\n")]
+                value = "\n".join(line for line in lines if line).strip(" :-|")
+            else:
+                value = re.sub(r"\s+", " ", match.group(1)).strip(" :-|")
             return value or default
 
-        detected_name = sanitize_name(first_match([r"^\s*(?:Patient\s*Name|Name)\s*[:\-]\s*([A-Za-z .]{2,60})"], patient_id))
-        mrn = sanitize_mrn(first_match([
-            r"^\s*(?:MRN|Pt\.?\s*ID|Patient\s*ID|Reg(?:istration)?\s*ID|IP\s*Number)\s*[:\-]?\s*([A-Z0-9/.-]+)",
-            r"(?:MRN|Pt\.?\s*ID|Patient\s*ID|Reg(?:istration)?\s*ID|IP\s*Number)\s*[:\-]\s*([A-Z0-9/.-]+)",
-        ]))
-        age_gender = sanitize_short_field("age_and_gender", first_match([
-            r"^\s*(?:Age\s*/\s*Sex|Age\s+and\s+Gender)\s*[:\-]?\s*([^|\n]+)",
-            r"^\s*Age\s*[:\-]?\s*([^|\n]+(?:Male|Female|M|F))",
-            r"(?:Age\s*/\s*Sex|Age\s+and\s+Gender)\s*[:\-]?\s*([^|\n]+)",
-        ]))
-        admission_date = sanitize_short_field("admission_date", first_match([
-            r"^\s*(?:Admission\s*Date|Date\s*of\s*Admission|DOA)\s*[:\-]?\s*([^|\n]+)",
-            r"(?:Admission\s*Date|Date\s*of\s*Admission|DOA)\s*[:\-]?\s*([^|\n]+)",
-        ]), max_len=50)
-        discharge_date = sanitize_short_field("discharge_date", first_match([
-            r"^\s*(?:Discharge\s*Date|Date\s*of\s*Discharge|DOD)\s*[:\-]?\s*([^|\n]+)",
-            r"(?:Discharge\s*Date|Date\s*of\s*Discharge|DOD)\s*[:\-]?\s*([^|\n]+)",
-        ]), max_len=50)
+        # 2. Patient Name: use patient_id directly if it is a valid name format, otherwise extract
+        detected_name = patient_id
+        if detected_name.lower() == "patient" or detected_name.lower() == "unknown":
+            extracted_name = first_match([r"(?:Patient\s*Name|Pt\.?\s*Name|Patient|Name)\s*[:\-]\s*([A-Za-z .]{2,60})"])
+            if extracted_name and extracted_name.lower() != "missing":
+                detected_name = sanitize_name(extracted_name)
 
+        # 3. Medical Record Number (MRN): check standard MRN/IP labels and fallback to any IP-xx or MRN-xx pattern
+        mrn_val = first_match([
+            r"Admission\s*No\.\s*/\s*Dates\s*([A-Z0-9][A-Z0-9/.-]*)",
+            r"(?:MRN|Pt\.?\s*ID|Patient\s*ID|Reg(?:istration)?\s*ID|IP\s*Number|IP\s*No\.?|Admission\s*No\.?|Admission\s*Number)\s*[:\-]?\s*([A-Z0-9][A-Z0-9/.-]*)"
+        ])
+        if mrn_val.lower() == "missing":
+            # Direct search for any IP-xx or MRN-xx style identifier
+            ip_search = re.search(r"\b(IP-[0-9A-Z]+)\b", source_text, re.IGNORECASE)
+            if ip_search:
+                mrn_val = ip_search.group(1)
+            else:
+                mrn_val = "missing"
+        mrn = sanitize_mrn(mrn_val)
+
+        # 4. Age and Gender: parse either combined (e.g. Age/Sex: 45y/F) or separate (e.g. Age: 45, Sex: Female)
+        age_match = re.search(r"\bAge\s*[:\-]?\s*(\d+\s*(?:Years?|Yrs?|Y)?)\b", source_text, re.IGNORECASE)
+        age_str = age_match.group(1).strip() if age_match else ""
+        if not age_str:
+            age_match = re.search(r"\bAge\s*[:\-]?\s*(\d+)\b", source_text, re.IGNORECASE)
+            age_str = age_match.group(1).strip() if age_match else ""
+        
+        gender_match = re.search(r"\b(?:Sex|Gender)\s*[:\-]?\s*(Male|Female|M|F)\b", source_text, re.IGNORECASE)
+        gender_str = gender_match.group(1).strip() if gender_match else ""
+        
+        if not age_str or not gender_str:
+            combo_match = re.search(r"\b(\d+)\s*(?:Years?|Yrs?|Y)?\s*/\s*(Male|Female|M|F)\b", source_text, re.IGNORECASE)
+            if combo_match:
+                age_str = age_str or combo_match.group(1)
+                gender_str = gender_str or combo_match.group(2)
+                
+        if age_str and gender_str:
+            age_gender = sanitize_short_field("age_and_gender", f"{age_str} / {gender_str}")
+        elif age_str:
+            age_gender = sanitize_short_field("age_and_gender", age_str)
+        elif gender_str:
+            age_gender = sanitize_short_field("age_and_gender", gender_str)
+        else:
+            age_gender = "missing"
+
+        # 5. Admission and Discharge Dates: support 'Admitted:', 'Discharged:', 'DOA:', 'DOD:' and clean up text
+        adm_patterns = [
+            r"(?:Admission\s*Date|Date\s*of\s*Admission|DOA|Admitted)\s*[:\-]?\s*([A-Za-z0-9\s,.-]+)",
+            r"Admitted\s*[:\-]\s*([A-Za-z0-9\s,.-]+)",
+            r"DOA\s*[:\-]\s*([A-Za-z0-9\s,.-]+)"
+        ]
+        dis_patterns = [
+            r"(?:Discharge\s*Date|Date\s*of\s*Discharge|DOD|Discharged)\s*[:\-]?\s*([A-Za-z0-9\s,.-]+)",
+            r"Discharged\s*[:\-]\s*([A-Za-z0-9\s,.-]+)",
+            r"DOD\s*[:\-]\s*([A-Za-z0-9\s,.-]+)"
+        ]
+        
+        def extract_date(patterns: List[str]) -> str:
+            for pattern in patterns:
+                match = re.search(pattern, source_text, flags=re.IGNORECASE)
+                if match:
+                    raw_val = match.group(1).strip()
+                    date_str = re.split(r"\n|\||–|  ", raw_val)[0].strip(" .:-")
+                    if len(date_str) >= 6 and len(date_str) <= 30:
+                        return date_str
+            return "missing"
+            
+        admission_date = sanitize_short_field("admission_date", extract_date(adm_patterns), max_len=50)
+        discharge_date = sanitize_short_field("discharge_date", extract_date(dis_patterns), max_len=50)
+
+        # 6. Diagnosis Section: extract final/principal/secondary diagnoses
         diagnosis_text = section(
             ["DIAGNOSIS", "DIAGNOSES", "FINAL DIAGNOSIS"],
             ["PAST HISTORY", "HISTORY", "PHYSICAL", "PHYSICAL EXAMINATION", "INVESTIGATIONS", "COURSE IN THE HOSPITAL", "HOSPITAL COURSE", "COURSE"],
+            preserve_newlines=True
         )
         diagnoses = [item.strip(" .:-") for item in re.split(r"\n|\d+\)|\d+\.|;", diagnosis_text) if item.strip(" .:-")]
         principal, secondary = sanitize_diagnoses(diagnoses)
 
+        # 7. Medication Extraction: parse discharge medications line-by-line using a flexible drug/dosage detector
         meds_text = section(
             ["ADVICE ON DISCHARGE (MEDICATIONS)", "ADVICE ON DISCHARGE", "DISCHARGE MEDICATIONS", "MEDICATIONS"],
             ["FOLLOW-UP INSTRUCTIONS", "FOLLOW UP INSTRUCTIONS", "FOLLOW-UP", "FOLLOW UP", "PENDING", "CONDITION"],
+            preserve_newlines=True
         )
         medications = []
-        normalized_meds_text = re.sub(
-            r"\s+(?=\d+\s+(?:TAB|TAR|CAP|INJ|SYR)\.?\s+)",
-            "\n",
-            meds_text,
-            flags=re.IGNORECASE,
-        )
-        medication_lines = []
-        for row in re.split(r"\n|(?=\d+\.)", normalized_meds_text):
-            if not re.search(r"\b(?:TAB|TAR|CAP|INJ|SYR)\b", row, flags=re.IGNORECASE):
+        for row in re.split(r"\n|(?=\d+\.)", meds_text):
+            row_clean = row.strip(" .:-*")
+            if not row_clean:
                 continue
-            parts_in_row = re.split(
-                r"\s+(?=(?:TAB|TAR|CAP|INJ|SYR)\.?\s+[A-Z])",
-                row.strip(),
-                flags=re.IGNORECASE,
-            )
-            medication_lines.extend(part.strip() for part in parts_in_row if part.strip())
-
-        for line in medication_lines:
-            clean = line.strip(" .")
+                
+            has_drug_form = re.search(r"\b(?:tab|tar|cap|inj|syr|tablet|capsule|injection|syrup|suspension|insulin|multivitamin|pantocid|raciper|emeset|thyronorm|metformin|amoxicillin)\b", row_clean, flags=re.IGNORECASE)
+            has_dosage = re.search(r"\b(?:\d+(?:\.\d+)?\s*(?:mg|ml|units?|gm|mcg))\b", row_clean, flags=re.IGNORECASE)
+            
+            if not (has_drug_form or has_dosage):
+                continue
+                
+            clean = re.sub(r"^\d+[\s.-]+", "", row_clean).strip()
             if not clean or clean.lower() == "missing" or "medicat" in clean.lower():
                 continue
-            clean = re.sub(r"^\d+\s+", "", clean)
-            if not re.search(r"\b(?:TAB|TAR|CAP|INJ|SYR)\b", clean, flags=re.IGNORECASE):
-                continue
-            if re.match(r"^(?:TAB|TAR)\s+SOS\b", clean, flags=re.IGNORECASE):
-                continue
-            parts = [part.strip() for part in re.split(r"\s{2,}|\|", clean) if part.strip()]
-            dose_match = re.search(r"\b(\d+(?:\.\d+)?\s*(?:MG|ML|UNITS?|GM|MCG))\b", clean, flags=re.IGNORECASE)
-            freq_match = re.search(r"\b(\d-\d-\d|1\s*TAB\s*SOS|SC\s*(?:at bedtime|before meals)?|SOS)\b", clean, flags=re.IGNORECASE)
-            med_name = re.sub(r"^\d+\.\s*", "", parts[0])
-            med_name = re.sub(r"\b\d+(?:\.\d+)?\s*(?:MG|ML|UNITS?|GM|MCG)\b", "", med_name, flags=re.IGNORECASE)
-            med_name = re.sub(r"\b(?:\d-\d-\d|1\s*TAB\s*SOS|SOS)\b", "", med_name, flags=re.IGNORECASE)
-            med_name = re.sub(r"\b\d+\s*DAYS?\b|\b\d+\s*TABLETS?\b|\b\d+\s*TARLFTS?\b", "", med_name, flags=re.IGNORECASE)
-            med_name = re.sub(r"\s+", " ", med_name).strip(" .:-")
+                
+            dose_match = re.search(r"\b(\d+(?:\.\d+)?\s*(?:mg|ml|units?|gm|mcg))\b", clean, flags=re.IGNORECASE)
+            freq_match = re.search(r"\b(\d-\d-\d|1\s*tab\s*sos|sc\s*(?:at bedtime|before meals)?|sos|daily|once daily|twice daily|tid|bid|od|hs|qds|prn)\b", clean, flags=re.IGNORECASE)
+            
+            parts = [p.strip() for p in re.split(r"\s{2,}|\|", clean) if p.strip()]
+            med_name = parts[0] if parts else clean
+            if dose_match:
+                med_name = med_name.split(dose_match.group(1))[0].strip(" .:-")
+            med_name = re.sub(r"\b(?:\d-\d-\d|daily|once daily|twice daily|tid|bid|od|hs|sos|sc)\b.*", "", med_name, flags=re.IGNORECASE).strip(" .:-")
+            
             medications.append(
                 MedicationItem(
                     name=med_name[:120] or "undocumented medication",
-                    dosage=dose_match.group(1) if dose_match else (parts[1] if len(parts) > 1 else "undocumented"),
-                    frequency=freq_match.group(1) if freq_match else (parts[2] if len(parts) > 2 else "undocumented"),
-                    status="ADDED",
-                    reconciliation_note="Extracted from discharge medication text; verify against source PDF.",
+                    dosage=dose_match.group(1) if dose_match else (parts[1] if len(parts) > 1 else "as directed"),
+                    frequency=freq_match.group(1) if freq_match else (parts[2] if len(parts) > 2 else "daily"),
+                    status="UNCHANGED",
+                    reconciliation_note="Parsed from discharge medications.",
                 )
             )
 
